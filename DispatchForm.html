@@ -1,0 +1,1956 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <base target="_top">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dispatch | WMS</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+  <style>
+    :root {
+      --primary-msg: #F59E0B;
+      --primary-btn: #DC2626;
+      --bg-color: #F3F4F6;
+      --card-bg: #FFFFFF;
+    }
+
+    body {
+      background-color: var(--bg-color);
+      font-family: 'Inter', sans-serif;
+      padding-bottom: 40px;
+    }
+
+    .main-card {
+      max-width: 800px;
+      margin: 20px auto;
+      border: none;
+      border-radius: 16px;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+      background: var(--card-bg);
+      overflow: hidden;
+    }
+
+    .card-header {
+      background: #FFFFFF;
+      border-bottom: 1px solid #E5E7EB;
+      padding: 20px 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .header-title {
+      font-weight: 700;
+      font-size: 1.25rem;
+      color: #111827;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .card-body {
+      padding: 24px;
+    }
+
+    .form-label {
+      font-weight: 500;
+      font-size: 0.875rem;
+      color: #374151;
+      margin-bottom: 6px;
+    }
+
+    .form-control {
+      border-radius: 8px;
+      border: 1px solid #D1D5DB;
+      padding: 10px 12px;
+    }
+
+    .form-control:focus {
+      border-color: var(--primary-msg);
+      box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.1);
+    }
+
+    .btn-action {
+      background: var(--primary-btn);
+      color: white;
+      border: none;
+      border-radius: 10px;
+      padding: 12px 20px;
+      font-weight: 600;
+      width: 100%;
+    }
+
+    .btn-action:hover {
+      background: #B91C1C;
+      color: white;
+    }
+
+    .type-selector {
+      background: #F9FAFB;
+      padding: 4px;
+      border-radius: 10px;
+      display: flex;
+      gap: 4px;
+      margin-bottom: 24px;
+      border: 1px solid #E5E7EB;
+    }
+
+    .type-option {
+      flex: 1;
+      text-align: center;
+      padding: 10px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: 500;
+      font-size: 0.9rem;
+      color: #6B7280;
+      transition: all 0.2s;
+    }
+
+    .type-option.active {
+      background: #FFFFFF;
+      color: #B45309;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+      font-weight: 600;
+    }
+
+    /* â”€â”€ Manual item rows (dispatch / manual consumption) â”€â”€ */
+    .item-row {
+      background: #FFFBEB;
+      border: 1px solid #FCD34D;
+      border-radius: 12px;
+      padding: 16px;
+      margin-bottom: 16px;
+      position: relative;
+    }
+
+    .remove-row-btn {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      color: #B45309;
+      background: none;
+      border: none;
+    }
+
+    /* â”€â”€ PO-auto-populated rows (consumption, locked) â”€â”€ */
+    .po-item-row {
+      background: #F0FDF4;
+      border: 1px solid #86EFAC;
+      border-radius: 12px;
+      padding: 14px 16px;
+      margin-bottom: 12px;
+      position: relative;
+    }
+
+    .po-item-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin-bottom: 10px;
+    }
+
+    .po-item-code {
+      font-weight: 700;
+      font-size: 0.95rem;
+      color: #15803D;
+    }
+
+    .po-item-qty-label {
+      font-size: 0.8rem;
+      color: #6B7280;
+    }
+
+    .po-item-qty-label strong {
+      color: #15803D;
+    }
+
+    .version-badge {
+      display: inline-block;
+      background: #ECFDF5;
+      border: 1px solid #86EFAC;
+      border-radius: 6px;
+      padding: 2px 8px;
+      font-size: 0.72rem;
+      font-weight: 700;
+      color: #15803D;
+      margin-left: 8px;
+    }
+
+    .version-warning-row {
+      font-size: 0.78rem;
+      color: #D97706;
+      margin-top: 6px;
+      min-height: 14px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      align-items: center;
+    }
+
+    .vw-chip {
+      background: #FFFBEB;
+      border: 1px solid #FCD34D;
+      border-radius: 4px;
+      padding: 1px 7px;
+      font-size: 0.72rem;
+      white-space: nowrap;
+      color: #92400E;
+    }
+
+    .vw-chip.vw-ver {
+      background: #FEF3C7;
+      border-color: #F59E0B;
+      font-weight: 700;
+      color: #78350F;
+    }
+
+    .vw-chip.vw-receiving {
+      background: #ECFDF5;
+      border-color: #86EFAC;
+      color: #065F46;
+      font-weight: 600;
+    }
+
+    .uom-badge {
+      font-size: 0.68rem;
+      font-weight: 700;
+      color: #6366F1;
+      background: #EEF2FF;
+      border: 1px solid #C7D2FE;
+      border-radius: 3px;
+      padding: 1px 5px;
+      margin-left: 4px;
+    }
+
+    .version-warning-row.visible {
+      display: block;
+    }
+
+    .version-warning-row .vw-head {
+      font-weight: 600;
+      margin-bottom: 3px;
+    }
+
+    .version-warning-row .vw-bins {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      margin-top: 4px;
+    }
+
+    .version-warning-row .vw-chip {
+      background: #FFFBEB;
+      border: 1px solid #FCD34D;
+      border-radius: 4px;
+      padding: 1px 7px;
+      font-size: 0.72rem;
+      white-space: nowrap;
+    }
+
+    .version-warning-row .vw-chip.v-label {
+      background: #FEF3C7;
+      border-color: #F59E0B;
+      font-weight: 700;
+      color: #78350F;
+    }
+
+    .po-alloc-note {
+      font-size: 0.78rem;
+      color: #6B7280;
+      margin-top: 8px;
+    }
+
+    .po-alloc-list {
+      display: grid;
+      gap: 8px;
+      margin-top: 8px;
+    }
+
+    .po-alloc-row {
+      display: grid;
+      grid-template-columns: 1fr 140px 32px;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .po-alloc-summary {
+      font-size: 0.78rem;
+      margin-top: 8px;
+      min-height: 16px;
+    }
+
+    .po-alloc-summary.ok {
+      color: #059669;
+    }
+
+    .po-alloc-summary.warn {
+      color: #DC2626;
+    }
+
+    .po-lookup-wrap {
+      display: flex;
+      gap: 8px;
+      align-items: flex-end;
+    }
+
+    .po-lookup-wrap .form-control {
+      flex: 1;
+    }
+
+    .btn-lookup {
+      background: #4F46E5;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      padding: 10px 16px;
+      font-weight: 600;
+      font-size: 0.875rem;
+      white-space: nowrap;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+
+    .btn-lookup:hover {
+      background: #4338CA;
+    }
+
+    .btn-lookup:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .po-status-msg {
+      font-size: 0.8rem;
+      margin-top: 6px;
+      min-height: 18px;
+    }
+
+    .po-status-msg.ok {
+      color: #059669;
+    }
+
+    .po-status-msg.error {
+      color: #DC2626;
+    }
+
+    .po-status-msg.info {
+      color: #6B7280;
+    }
+
+    /* --- SPLIT BIN STYLES --- */
+    .split-bin-toolbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+      padding: 4px 8px;
+      background: rgba(0, 0, 0, 0.03);
+      border-radius: 6px;
+    }
+
+    .src-splits-container {
+      background: #f8fafc;
+      border: 1px dashed #cbd5e1;
+      border-radius: 8px;
+      padding: 12px;
+      margin-top: 10px;
+    }
+
+    .split-row {
+    display: grid;
+    gap: 8px;
+    align-items: center;
+    padding: 6px 0;
+  }
+  
+
+.split-bin-select {
+    flex: 1;
+    min-width: 150px;
+    max-width: 250px;  /* <-- Prevent bin selector from being too wide */
+    font-size: 0.875rem;
+  }
+
+    .split-qty-input {
+      text-align: right;
+      font-weight: 600;
+    }
+
+    
+
+
+    .split-total-info {
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-align: right;
+      padding-top: 4px;
+      border-top: 1px solid #e2e8f0;
+    }
+
+    .split-total-info.error {
+      color: #dc2626;
+    }
+
+    .split-total-info.ok {
+      color: #059669;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="container">
+    <div class="main-card">
+      <div class="card-header">
+        <div class="header-title">
+          <i class="fa-solid fa-truck-ramp-box text-warning"></i>
+          Dispatch
+        </div>
+        <button class="btn btn-sm btn-outline-secondary" onclick="goBack()">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+
+      <div class="card-body">
+        <form id="dispatchForm" onsubmit="handleFormSubmit(event)">
+
+          <div class="type-selector">
+            <div class="type-option active" id="optDispatch" onclick="setType('DISPATCH')">
+              <i class="fa-solid fa-truck me-2"></i>Outbound
+            </div>
+            <div class="type-option" id="optConsume" onclick="setType('CONSUMPTION')">
+              <i class="fa-solid fa-industry me-2"></i>Production
+            </div>
+            <input type="hidden" name="moveType" id="moveType" value="DISPATCH">
+          </div>
+
+          <!-- PO field â€” shown only for CONSUMPTION -->
+          <div class="mb-4 d-none" id="prodOrderField">
+            <label class="form-label">Production Order No</label>
+            <div class="po-lookup-wrap">
+              <input type="text" class="form-control" id="prodOrderNo" placeholder="e.g. PO-20250215-0042"
+                autocomplete="off" autocapitalize="characters" spellcheck="false">
+              <button type="button" class="btn-lookup" id="btnLookupPO" onclick="lookupPOForConsumption()">
+                <i class="fa-solid fa-magnifying-glass me-1"></i>Load PO
+              </button>
+            </div>
+            <div class="po-status-msg" id="poStatusMsg"></div>
+          </div>
+
+          <!-- Items (manual dispatch OR PO-loaded consumption) -->
+          <h6 class="text-uppercase text-muted fw-bold small mb-3" id="itemsSectionLabel">Items to Issue</h6>
+          <div id="itemsContainer"></div>
+
+          <button type="button" class="btn btn-outline-warning w-100 mb-4" id="addItemBtn" onclick="addItemRow()">
+            <i class="fa-solid fa-plus me-2"></i>Add Item
+          </button>
+
+          <div class="mb-4">
+            <label class="form-label">Remarks</label>
+            <textarea class="form-control" id="remarks" rows="2"></textarea>
+          </div>
+
+          <div class="mb-3 d-none" id="qaOverrideSection">
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" id="qaOverride" />
+              <label class="form-check-label" for="qaOverride">
+                Override QA and Dispatch Now
+              </label>
+            </div>
+            <input type="text" class="form-control mt-2" id="qaOverrideReason" placeholder="Override reason" disabled>
+          </div>
+          <div id="qaBlockMsg" class="text-danger small mb-2 d-none"></div>
+
+          <button type="submit" class="btn btn-action" id="submitBtn">
+            Confirm Movement
+          </button>
+
+          <div id="loading" class="text-center mt-3 d-none">
+            <div class="spinner-border text-danger spinner-border-sm" role="status"></div>
+            <span class="ms-2 text-muted small">Processing...</span>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- â”€â”€ Template for manual rows (dispatch + manual consumption) â”€â”€ -->
+  <template id="itemRowTemplate">
+    <div class="item-row">
+      <button type="button" class="remove-row-btn" onclick="removeRow(this)">
+        <i class="fa-solid fa-trash-can"></i>
+      </button>
+      <div class="row g-3">
+        <div class="col-md-3">
+          <label class="form-label">Item Code</label>
+          <input type="text" class="form-control item-input" placeholder="Scan or Type" required>
+        </div>
+        <div class="col-md-3">
+          <label class="form-label">Lot No</label>
+          <input type="text" class="form-control lot-input" placeholder="Lot (optional)">
+        </div>
+        <div class="col-md-3">
+          <label class="form-label">Batch No</label>
+          <input type="text" class="form-control batch-input" placeholder="Batch" required>
+        </div>
+        <div class="col-md-3">
+          <label class="form-label qty-label">Qty</label>
+          <div class="input-group">
+            <input type="number" class="form-control qty-input" step="0.01" min="0.01" required>
+            <select class="form-select uom-select" style="max-width:95px;">
+              <option value="KG">KG</option>
+            </select>
+          </div>
+        </div>
+      </div>
+      <div class="row g-3 mt-2">
+        <div class="col-md-4">
+          <label class="form-label">Site (Source)</label>
+          <select class="form-select site-select" onchange="loadLocationsForRow(this)" required>
+            <option value="">Select Site...</option>
+            <option value="Unit 1">Unit 1</option>
+            <option value="Unit 2">Unit 2</option>
+            <option value="Unit 3">Unit 3</option>
+            <option value="Warehouse">Warehouse</option>
+          </select>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">Location</label>
+          <select class="form-select location-select" onchange="filterBinsForRow(this)" required disabled>
+            <option value="">Select Location...</option>
+          </select>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">Bin (Source)</label>
+          <div class="split-bin-toolbar mb-1">
+            <small class="text-muted fw-bold">SINGLE BIN</small>
+            <button type="button" class="btn btn-xxs btn-outline-primary py-0 px-2" style="font-size:0.65rem;"
+              onclick="toggleSourceSplitMode(this)">
+              <i class="fa-solid fa-layer-group me-1"></i>SPLIT BINS
+            </button>
+          </div>
+          <select class="form-select bin-select" required disabled>
+            <option value="">Select Bin...</option>
+          </select>
+
+          <div class="src-splits-container" style="display:none;">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+              <span class="small fw-bold text-primary">SOURCE BINS</span>
+              <button type="button" class="btn btn-sm btn-link text-primary p-0" onclick="addSourceSplitRow(this)">
+                <i class="fa-solid fa-plus-circle"></i> Add Bin
+              </button>
+            </div>
+            <div class="src-splits-list"></div>
+            <div class="split-total-info">
+              Total: <span class="split-total-qty">0.00</span> / <span class="row-total-qty">0.00</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="qa-summary text-muted small mt-2"></div>
+      <div class="version-warning text-warning small mt-1"></div>
+      <datalist class="batch-list"></datalist>
+    </div>
+  </template>
+
+  <datalist id="itemDatalist"></datalist>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
+  <script>
+    const USER_ROLE = "<?!= userRole ?>";
+    const IS_READ_ONLY = USER_ROLE === 'QUALITY_MANAGER' || USER_ROLE === 'OPERATIONAL_VIEWER';
+
+    let itemCount = 0;
+    let binsData = [];
+    let binMap = {};
+    let locationsMasterData = [];
+    let inventoryData = [];
+    let inventoryLoaded = false;
+    let warehouseBinIndex = {};
+    let warehouseLoaded = false;
+    let binsLoaded = false;
+    let locationsLoaded = false;
+    let navInProgress = false;
+
+    // PO state â€” tracks whether items were auto-loaded from a PO
+    let poItemsLoaded = false; // true when consumption rows came from PO lookup
+
+    document.addEventListener('DOMContentLoaded', function () {
+      loadInitialData();
+      setupQaOverride();
+      evaluateSubmitState();
+    });
+
+    function loadInitialData() {
+      google.script.run.withSuccessHandler(function (bins) {
+        binsData = bins || [];
+        binMap = {};
+        binsData.forEach(function (b) { if (b && b.binId) binMap[String(b.binId)] = String(b.binCode || b.binId); });
+        binsLoaded = true;
+        maybeAddFirstRow();
+      }).getBins();
+
+      refreshInventorySnapshot();
+      refreshWarehouseSnapshot();
+
+      google.script.run.withSuccessHandler(function (locs) {
+        locationsMasterData = locs || [];
+        locationsLoaded = true;
+        maybeAddFirstRow();
+      }).getLocationsFromMaster();
+    }
+
+    function maybeAddFirstRow() {
+      if (itemCount === 0 && binsLoaded && locationsLoaded) addItemRow();
+    }
+
+    function norm(v) { return String(v || '').trim().toLowerCase(); }
+    function uniqueSorted(list) { return Array.from(new Set(list.filter(function (v) { return v !== ''; }))).sort(); }
+
+    function buildItemDatalist() {
+      const list = document.getElementById('itemDatalist');
+      if (!list) return;
+      list.innerHTML = '';
+      const items = uniqueSorted((inventoryData || []).map(function (r) { return String(r.itemCode || '').trim(); }));
+      items.forEach(function (code) {
+        const opt = document.createElement('option');
+        opt.value = code;
+        list.appendChild(opt);
+      });
+    }
+
+    function refreshInventorySnapshot(onDone) {
+      inventoryLoaded = false;
+      google.script.run
+        .withSuccessHandler(function (rows) {
+          inventoryData = rows || [];
+          inventoryLoaded = true;
+          buildItemDatalist();
+          if (typeof onDone === 'function') onDone(true);
+        })
+        .withFailureHandler(function () {
+          inventoryLoaded = true;
+          if (typeof onDone === 'function') onDone(false);
+        })
+        .getInventoryReadView();
+    }
+
+    function _buildWarehouseBinIndex(items) {
+      const out = {};
+      (items || []).forEach(function (item) {
+        const codeKey = norm(item && item.itemCode);
+        if (!codeKey) return;
+
+        const agg = {};
+        (item.versions || []).forEach(function (ver) {
+          (ver.bins || []).forEach(function (b) {
+            const binId = String((b && b.binId) || '').trim();
+            if (!binId) return;
+            if (!agg[binId]) {
+              agg[binId] = {
+                optionKey: _buildPoSourceKey('', binId),
+                binId: binId,
+                batchId: '',
+                binCode: String(b.binCode || binId),
+                site: String(b.site || '').trim(),
+                location: String(b.location || '').trim(),
+                totalQty: 0,
+                approvedQty: 0,
+                pendingQty: 0,
+                rejectedQty: 0,
+                batchBuckets: []
+              };
+            }
+            const qty = Number(b.quantity) || 0;
+            agg[binId].totalQty += qty;
+            agg[binId].approvedQty += qty;
+          });
+        });
+
+        out[codeKey] = Object.keys(agg).map(function (k) { return agg[k]; })
+          .filter(function (r) { return Number(r.totalQty || 0) > 0; })
+          .sort(function (a, b) { return Number(b.totalQty || 0) - Number(a.totalQty || 0); });
+      });
+      return out;
+    }
+
+    function refreshWarehouseSnapshot(onDone) {
+      warehouseLoaded = false;
+      google.script.run
+        .withSuccessHandler(function (items) {
+          warehouseBinIndex = _buildWarehouseBinIndex(items || []);
+          warehouseLoaded = true;
+          if (typeof onDone === 'function') onDone(true);
+        })
+        .withFailureHandler(function () {
+          warehouseBinIndex = {};
+          warehouseLoaded = true;
+          if (typeof onDone === 'function') onDone(false);
+        })
+        .getWarehouseItemDashboardData();
+    }
+
+    function getInventoryRows(itemCode, batchId) {
+      const codeKey = norm(itemCode);
+      const batchKey = norm(batchId);
+      return (inventoryData || []).filter(function (r) {
+        if (norm(r.itemCode) !== codeKey) return false;
+        if (batchKey && norm(r.batchId) !== batchKey) return false;
+        return (Number(r.quantity) || 0) > 0;
+      });
+    }
+
+    function setType(type) {
+      document.getElementById('moveType').value = type;
+      document.querySelectorAll('.type-option').forEach(function (el) { el.classList.remove('active'); });
+
+      if (type === 'DISPATCH') {
+        document.getElementById('optDispatch').classList.add('active');
+        document.getElementById('prodOrderField').classList.add('d-none');
+        document.getElementById('prodOrderNo').required = false;
+        document.getElementById('addItemBtn').style.display = '';
+        document.getElementById('itemsSectionLabel').textContent = 'Items to Issue';
+
+        // If switching away from a loaded PO, clear and restore manual row
+        if (poItemsLoaded) {
+          clearPORows();
+          addItemRow();
+        }
+      } else {
+        document.getElementById('optConsume').classList.add('active');
+        document.getElementById('prodOrderField').classList.remove('d-none');
+        document.getElementById('prodOrderNo').required = true;
+        document.getElementById('itemsSectionLabel').textContent = 'Items to Consume';
+      }
+      evaluateSubmitState();
+    }
+
+    function lookupPOForConsumption() {
+      const poNo = document.getElementById('prodOrderNo').value.trim();
+      const statusEl = document.getElementById('poStatusMsg');
+      const lookupBtn = document.getElementById('btnLookupPO');
+
+      if (!poNo) {
+        statusEl.textContent = 'Enter a Production Order number first.';
+        statusEl.className = 'po-status-msg error';
+        return;
+      }
+
+      statusEl.textContent = 'Refreshing inventory snapshot...';
+      statusEl.className = 'po-status-msg info';
+      lookupBtn.disabled = true;
+
+      refreshInventorySnapshot(function (ok) {
+        if (!ok) {
+          lookupBtn.disabled = false;
+          statusEl.textContent = 'Error: inventory snapshot failed. Please refresh and try again.';
+          statusEl.className = 'po-status-msg error';
+          return;
+        }
+
+        statusEl.textContent = 'Looking up PO...';
+        statusEl.className = 'po-status-msg info';
+        refreshWarehouseSnapshot(function () {
+
+          google.script.run
+            .withSuccessHandler(function (result) {
+              lookupBtn.disabled = false;
+
+              if (result && result.error) {
+                statusEl.textContent = 'Error: ' + result.error;
+                statusEl.className = 'po-status-msg error';
+                return;
+              }
+
+              if (!result || !result.items || result.items.length === 0) {
+                statusEl.textContent = 'No items found for this PO.';
+                statusEl.className = 'po-status-msg error';
+                return;
+              }
+
+              statusEl.textContent = 'Loaded ' + result.items.length + ' item(s). Allocate quantity from available stock bins.';
+              statusEl.className = 'po-status-msg ok';
+
+              renderPOItems(result.items);
+            })
+            .withFailureHandler(function (err) {
+              lookupBtn.disabled = false;
+              statusEl.textContent = 'Error: ' + (err.message || 'Lookup failed. Try again.');
+              statusEl.className = 'po-status-msg error';
+            })
+            .getApprovedProductionOrderItems(poNo);
+        });
+      });
+    }
+
+    // Allow Enter key in PO input to trigger lookup
+    document.addEventListener('DOMContentLoaded', function () {
+      document.getElementById('prodOrderNo').addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          lookupPOForConsumption();
+        }
+      });
+    });
+
+    function _buildPoSourceKey(batchId, binId) {
+      return encodeURIComponent(String(batchId || '')) + '||' + encodeURIComponent(String(binId || ''));
+    }
+
+    function _parsePoSourceKey(sourceKey) {
+      const raw = String(sourceKey || '');
+      const parts = raw.split('||');
+      return {
+        batchId: decodeURIComponent(parts[0] || ''),
+        binId: decodeURIComponent(parts[1] || '')
+      };
+    }
+
+    /**
+     * Builds PO source options as item+bin combinations.
+     * Batch is auto-resolved at submit time.
+     */
+    function getPoBinOptions(itemCode, batchIdIgnored, itemId) {
+      const live = _scanBinsForItem(itemCode, '', itemId);
+      if (live && live.length > 0) return live;
+      return _scanBinsFromWarehouse(itemCode);
+    }
+
+    function _scanBinsFromWarehouse(itemCode) {
+      const codeKey = norm(itemCode);
+      const rows = warehouseBinIndex[codeKey] || [];
+      return (rows || []).map(function (r) {
+        return Object.assign({}, r, {
+          optionKey: r.optionKey || _buildPoSourceKey('', r.binId)
+        });
+      });
+    }
+
+    function _scanBinsForItem(itemCode, batchIdIgnored, itemId) {
+      const codeKey = norm(itemCode);
+      const idKey = norm(itemId);
+      const map = {};
+
+      (inventoryData || []).forEach(function (row) {
+        const rowCode = norm(row.itemCode);
+        const rowId = norm(row.itemId);
+        const matchesByCode = !!codeKey && rowCode === codeKey;
+        const matchesById = !!idKey && rowId === idKey;
+        const matchesByLegacyCodeAsId = !!idKey && rowCode === idKey;
+        if (!matchesByCode && !matchesById && !matchesByLegacyCodeAsId) return;
+
+        const qty = Number(row.quantity) || 0;
+        if (qty <= 0) return;
+
+        const binId = String(row.binId || '').trim();
+        const batchId = String(row.batchId || '').trim();
+        if (!binId) return;
+
+        const key = _buildPoSourceKey('', binId);
+        if (!map[key]) {
+          map[key] = {
+            optionKey: key,
+            binId: binId,
+            batchId: '',
+            binCode: binMap[binId] || binId,
+            site: String(row.site || '').trim(),
+            location: String(row.location || '').trim(),
+            totalQty: 0,
+            approvedQty: 0,
+            pendingQty: 0,
+            rejectedQty: 0,
+            batchBuckets: {}
+          };
+        }
+
+        map[key].totalQty += qty;
+        const qa = norm(row.qualityStatus);
+        if (qa === 'approved' || qa === 'overridden') map[key].approvedQty += qty;
+        else if (qa === 'rejected' || qa === 'hold') map[key].rejectedQty += qty;
+        else map[key].pendingQty += qty;
+
+        const bKey = batchId || '__NO_BATCH__';
+        if (!map[key].batchBuckets[bKey]) {
+          map[key].batchBuckets[bKey] = {
+            batchId: batchId,
+            totalQty: 0,
+            approvedQty: 0
+          };
+        }
+        map[key].batchBuckets[bKey].totalQty += qty;
+        if (qa === 'approved' || qa === 'overridden') {
+          map[key].batchBuckets[bKey].approvedQty += qty;
+        }
+      });
+
+      return Object.keys(map).map(function (k) {
+        const m = map[k];
+        m.batchBuckets = Object.keys(m.batchBuckets).map(function (bk) {
+          return m.batchBuckets[bk];
+        }).sort(function (a, b) {
+          if (b.approvedQty !== a.approvedQty) return b.approvedQty - a.approvedQty;
+          return b.totalQty - a.totalQty;
+        });
+        return m;
+      }).sort(function (a, b) {
+        if (b.approvedQty !== a.approvedQty) return b.approvedQty - a.approvedQty;
+        return b.totalQty - a.totalQty;
+      });
+    }
+
+    function _getPoItemInventoryDiagnostics(itemCode, itemId) {
+      const codeKey = norm(itemCode);
+      const idKey = norm(itemId);
+      let matched = 0, qtyRows = 0, withBin = 0, totalQty = 0;
+
+      (inventoryData || []).forEach(function (row) {
+        const rowCode = norm(row.itemCode);
+        const rowId = norm(row.itemId);
+        const matchesByCode = !!codeKey && rowCode === codeKey;
+        const matchesById = !!idKey && rowId === idKey;
+        const matchesByLegacyCodeAsId = !!idKey && rowCode === idKey;
+        if (!matchesByCode && !matchesById && !matchesByLegacyCodeAsId) return;
+        matched += 1;
+        const qty = Number(row.quantity) || 0;
+        if (qty <= 0) return;
+        qtyRows += 1;
+        totalQty += qty;
+        if (String(row.binId || '').trim()) withBin += 1;
+      });
+      return { matched: matched, qtyRows: qtyRows, withBin: withBin, totalQty: totalQty };
+    }
+
+    function formatPoBinOption(bin) {
+      let label = (bin.binCode || bin.binId);
+      const bucketCount = Array.isArray(bin.batchBuckets)
+        ? bin.batchBuckets.filter(function (b) { return !!String(b.batchId || '').trim(); }).length
+        : 0;
+      if (bucketCount > 0) label += ' | ' + bucketCount + ' batch' + (bucketCount > 1 ? 'es' : '');
+      if (bin.site || bin.location) label += ' | ' + (bin.site || '-') + '/' + (bin.location || '-');
+      label += ' | Avl ' + Number(bin.totalQty || 0).toFixed(2);
+      if (bin.approvedQty > 0 && bin.approvedQty < bin.totalQty) {
+        label += ' (Apvd ' + Number(bin.approvedQty).toFixed(2) + ')';
+      }
+      return label;
+    }
+
+    function addPoAllocationRow(rowDiv, preset) {
+      const allocList = rowDiv.querySelector('.po-alloc-list');
+      const binOptions = JSON.parse(rowDiv.dataset.binOptions || '[]');
+
+      const rowEl = document.createElement('div');
+      rowEl.className = 'po-alloc-row';
+
+      const select = document.createElement('select');
+      select.className = 'form-select form-select-sm po-bin-select';
+      select.innerHTML = '<option value="">Select source bin...</option>';
+      binOptions.forEach(function (bin) {
+        const opt = document.createElement('option');
+        opt.value = bin.optionKey || _buildPoSourceKey(bin.batchId, bin.binId);
+        opt.textContent = formatPoBinOption(bin);
+        select.appendChild(opt);
+      });
+
+      const qtyInput = document.createElement('input');
+      qtyInput.type = 'number';
+      qtyInput.step = '0.01';
+      qtyInput.min = '0.01';
+      qtyInput.className = 'form-control form-control-sm po-qty-input';
+      qtyInput.placeholder = String(rowDiv.dataset.uom || 'Qty');
+
+      const removeBtn = document.createElement('button');
+      removeBtn.type = 'button';
+      removeBtn.className = 'btn btn-sm btn-outline-danger po-remove-split';
+      removeBtn.innerHTML = '&times;';
+      removeBtn.title = 'Remove split';
+
+      rowEl.appendChild(select);
+      rowEl.appendChild(qtyInput);
+      rowEl.appendChild(removeBtn);
+      allocList.appendChild(rowEl);
+
+      if (preset && preset.sourceKey) select.value = preset.sourceKey;
+      if (preset && preset.qty) qtyInput.value = preset.qty;
+
+      select.addEventListener('change', function () {
+        refreshPoAllocationState(rowDiv);
+      });
+      qtyInput.addEventListener('input', function () {
+        refreshPoAllocationState(rowDiv);
+      });
+      removeBtn.addEventListener('click', function () {
+        rowEl.remove();
+        updatePoSplitButtons(rowDiv);
+        refreshPoAllocationState(rowDiv);
+      });
+
+      updatePoSplitButtons(rowDiv);
+      refreshPoAllocationState(rowDiv);
+    }
+
+    function updatePoSplitButtons(rowDiv) {
+      const removeButtons = rowDiv.querySelectorAll('.po-remove-split');
+      const lockSingle = removeButtons.length <= 1;
+      removeButtons.forEach(function (btn) {
+        btn.disabled = lockSingle;
+      });
+    }
+
+    function refreshPoAllocationState(rowDiv) {
+      const requiredQty = Number(rowDiv.dataset.requiredQty || 0);
+      const displayUom = String(rowDiv.dataset.uom || 'KG');
+      const binOptions = JSON.parse(rowDiv.dataset.binOptions || '[]');
+      const optionMap = {};
+      binOptions.forEach(function (b) {
+        const key = b.optionKey || _buildPoSourceKey(b.batchId, b.binId);
+        optionMap[key] = b;
+      });
+
+      const allocRows = Array.from(rowDiv.querySelectorAll('.po-alloc-row'));
+      const summaryEl = rowDiv.querySelector('.po-alloc-summary');
+      const qaEl = rowDiv.querySelector('.qa-summary');
+
+      let valid = allocRows.length > 0;
+      let allocated = 0;
+      const perSource = {};
+      const errors = [];
+
+      allocRows.forEach(function (alloc) {
+        const sourceKey = String(alloc.querySelector('.po-bin-select').value || '').trim();
+        const qty = Number(alloc.querySelector('.po-qty-input').value);
+        if (!sourceKey) {
+          valid = false;
+          return;
+        }
+        if (!isFinite(qty) || qty <= 0) {
+          valid = false;
+          return;
+        }
+        allocated += qty;
+        perSource[sourceKey] = (perSource[sourceKey] || 0) + qty;
+      });
+
+      Object.keys(perSource).forEach(function (sourceKey) {
+        const maxQty = Number((optionMap[sourceKey] || {}).totalQty || 0);
+        if (perSource[sourceKey] - maxQty > 0.001) {
+          valid = false;
+          const meta = optionMap[sourceKey] || {};
+          errors.push((meta.binCode || 'Source') + ' / ' + (meta.batchId || '?') + ' exceeds available stock');
+        }
+      });
+
+      const diff = Number((requiredQty - allocated).toFixed(3));
+      if (Math.abs(diff) > 0.001) {
+        valid = false;
+        if (diff > 0) {
+          errors.push('Allocate ' + diff.toFixed(2) + ' ' + displayUom + ' more');
+        } else {
+          errors.push('Reduce allocation by ' + Math.abs(diff).toFixed(2) + ' ' + displayUom);
+        }
+      }
+
+      const selectedSources = Object.keys(perSource);
+      if (selectedSources.length > 0) {
+        let approvedCap = 0;
+        let totalCap = 0;
+        selectedSources.forEach(function (sourceKey) {
+          approvedCap += Number((optionMap[sourceKey] || {}).approvedQty || 0);
+          totalCap += Number((optionMap[sourceKey] || {}).totalQty || 0);
+        });
+        qaEl.textContent = 'Selected sources: Approved ' + approvedCap.toFixed(2) + ' ' + displayUom + ' | Total ' + totalCap.toFixed(2) + ' ' + displayUom;
+      } else {
+        qaEl.textContent = '';
+      }
+
+      rowDiv.dataset.allocValid = valid ? 'true' : 'false';
+      summaryEl.className = 'po-alloc-summary ' + (valid ? 'ok' : 'warn');
+      if (valid) {
+        summaryEl.textContent = 'Allocated ' + allocated.toFixed(2) + ' / ' + requiredQty.toFixed(2) + ' ' + displayUom;
+      } else {
+        summaryEl.textContent = errors.join(' | ') || 'Complete bin + quantity allocation';
+      }
+      evaluateSubmitState();
+    }
+
+    function renderPOItems(poItems) {
+      clearPORows();
+      const container = document.getElementById('itemsContainer');
+      poItemsLoaded = true;
+      document.getElementById('addItemBtn').style.display = 'none';
+
+      poItems.forEach(function (item) {
+        const rowDiv = document.createElement('div');
+        rowDiv.className = 'po-item-row';
+
+        const itemCode = String(item.itemCode || '').trim();
+        const itemId = String(item.itemId || '').trim();
+        const jobOrderNo = String(item.jobOrderNo || item.batchId || '').trim();
+        const requiredQty = Number(item.remaining || 0);
+        const version = String(item.version || '').trim();
+
+        rowDiv.dataset.itemCode = itemCode;
+        rowDiv.dataset.itemId = itemId;
+        rowDiv.dataset.batchId = '';
+        rowDiv.dataset.ledgerBatchId = jobOrderNo || 'TBD';
+        rowDiv.dataset.requiredQty = requiredQty.toFixed(3);
+        rowDiv.dataset.allocValid = 'false';
+        rowDiv.dataset.uom = 'KG'; // will be updated async
+
+        const versionHtml = version && version !== 'TBD'
+          ? '<span class="version-badge">' + escHtml(version) + '</span>'
+          : '';
+        const jobOrderLabel = jobOrderNo ? (' | Job Order: ' + escHtml(jobOrderNo)) : '';
+
+        rowDiv.innerHTML =
+          '<div class="po-item-header">' +
+          '<span class="po-item-code">' + escHtml(itemCode) + versionHtml + '</span>' +
+          '<span class="po-item-qty-label po-qty-display">Issue: <strong>' + requiredQty.toFixed(2) + ' KG</strong></span>' +
+          '</div>' +
+          '<div class="po-alloc-note">' +
+          'Select source bin for this item' + jobOrderLabel +
+          '</div>' +
+          '<input type="hidden" class="item-input" value="' + escHtml(itemCode) + '">' +
+          '<input type="hidden" class="batch-input" value="">' +
+          '<input type="hidden" class="lot-input" value="">' +
+          '<div class="po-alloc-list"></div>' +
+          '<button type="button" class="btn btn-sm btn-outline-success mt-2 po-add-split">+ Add Split Bin</button>' +
+          '<div class="po-alloc-summary warn"></div>' +
+          '<div class="qa-summary text-muted small mt-1"></div>' +
+          '<div class="version-warning-row"></div>';
+
+        container.appendChild(rowDiv);
+
+        // ── Fetch UOM and update label async (non-blocking) ──────────────────
+        if (itemCode) {
+          google.script.run
+            .withSuccessHandler(function (uomInfo) {
+              const uom = (uomInfo && uomInfo.uomCode) ? String(uomInfo.uomCode) : 'KG';
+              rowDiv.dataset.uom = uom;
+              const qtyEl = rowDiv.querySelector('.po-qty-display');
+              if (qtyEl) qtyEl.innerHTML = 'Issue: <strong>' + requiredQty.toFixed(2) + ' ' + escHtml(uom) + '</strong>';
+              // Update any allocation qty placeholders
+              rowDiv.querySelectorAll('.po-qty-input').forEach(function (inp) {
+                inp.placeholder = uom;
+              });
+            })
+            .withFailureHandler(function () { })
+            .getItemUomForForm(itemCode);
+        }
+
+        const binOptions = getPoBinOptions(itemCode, '', itemId);
+        rowDiv.dataset.binOptions = JSON.stringify(binOptions);
+
+        if (!binOptions || binOptions.length === 0) {
+          const d = _getPoItemInventoryDiagnostics(itemCode, itemId);
+          rowDiv.querySelector('.po-alloc-summary').textContent =
+            'No stock bins found. matched=' + d.matched +
+            ', qtyRows=' + d.qtyRows +
+            ', withBin=' + d.withBin +
+            ', qty=' + d.totalQty.toFixed(2);
+          rowDiv.querySelector('.po-add-split').disabled = true;
+        } else {
+          const firstQty = Math.min(requiredQty, Number(binOptions[0].totalQty || 0));
+          addPoAllocationRow(rowDiv, {
+            sourceKey: binOptions[0].optionKey || _buildPoSourceKey('', binOptions[0].binId),
+            qty: firstQty > 0 ? firstQty.toFixed(3) : ''
+          });
+          rowDiv.querySelector('.po-add-split').addEventListener('click', function () {
+            addPoAllocationRow(rowDiv, {});
+          });
+        }
+
+        // ── Version warning (async, non-blocking) ───────────────────────────
+        if (version && version !== 'TBD') {
+          google.script.run
+            .withSuccessHandler(function (w) {
+              const warnEl = rowDiv.querySelector('.version-warning-row');
+              if (!warnEl || !w || !w.message) return;
+              renderVersionWarningCard(warnEl, w, version);
+            })
+            .withFailureHandler(function () { })
+            .getVersionDispatchWarning(itemCode, version);
+        }
+
+        itemCount++;
+      });
+
+      evaluateSubmitState();
+    }
+
+    /**
+     * Renders the structured version warning card inside the .version-warning-row div.
+     * Replaces the old plain-text assignment with a chip-based layout.
+     */
+    function renderVersionWarningCard(el, w, currentVersion) {
+      const raw = String(w.message || '');
+      let html = '<div class="vw-head">⚠ Older stock on shelves — consuming ' + escHtml(currentVersion) + '</div>';
+      // Parse "V1: Bin (qty KG) | V2: Bin2 (qty KG)"
+      const coreMatch = raw.match(/shelves:\s*(.*?)(?:\.|$)/);
+      const core = coreMatch ? coreMatch[1].trim() : raw;
+      if (core) {
+        const groups = core.split(' | ');
+        html += '<div class="vw-bins">';
+        groups.forEach(function (grp) {
+          const ci = grp.indexOf(':');
+          if (ci === -1) { html += '<span class="vw-chip">' + escHtml(grp.trim()) + '</span>'; return; }
+          html += '<span class="vw-chip v-label">' + escHtml(grp.slice(0, ci).trim()) + '</span>';
+          grp.slice(ci + 1).trim().split(',').forEach(function (b) {
+            html += '<span class="vw-chip">' + escHtml(b.trim()) + '</span>';
+          });
+        });
+        html += '</div>';
+      }
+      el.innerHTML = html;
+      el.classList.add('visible');
+    }
+
+
+    function clearPORows() {
+      const container = document.getElementById('itemsContainer');
+      container.innerHTML = '';
+      itemCount = 0;
+      poItemsLoaded = false;
+      document.getElementById('addItemBtn').style.display = '';
+      evaluateSubmitState();
+    }
+    function addItemRow() {
+      itemCount++;
+      const template = document.getElementById('itemRowTemplate');
+      const clone = template.content.cloneNode(true);
+      const container = document.getElementById('itemsContainer');
+      container.appendChild(clone);
+      const row = container.lastElementChild;
+      wireRowInventoryEvents(row);
+      wireQaSummaryEvents(row);
+      updateBatchOptions(row);
+      evaluateSubmitState();
+      initSourceSplitForRow(row);
+    }
+
+    function wireRowInventoryEvents(row) {
+      const itemInput = row.querySelector('.item-input');
+      const batchInput = row.querySelector('.batch-input');
+      const batchList = row.querySelector('.batch-list');
+      const batchListId = 'batchList_' + itemCount;
+
+      if (itemInput) itemInput.setAttribute('list', 'itemDatalist');
+      if (batchList) batchList.id = batchListId;
+      if (batchInput) batchInput.setAttribute('list', batchListId);
+      const uomSelect = row.querySelector('.uom-select');
+      if (uomSelect) {
+        uomSelect.addEventListener('change', function () {
+          applyDispatchQtyUom(row, String(this.value || 'KG').trim() || 'KG');
+        });
+      }
+
+      itemInput.addEventListener('change', function () {
+        updateBatchOptions(row);
+        refreshQaSummaryForRow(row);
+        lookupUomForDispatchRow(row); // FIX: update qty label with item UOM
+      });
+      batchInput.addEventListener('change', function () {
+        refreshQaSummaryForRow(row);
+      });
+    }
+
+    function updateBatchOptions(row) {
+      const itemCode = row.querySelector('.item-input').value.trim();
+      const batchList = row.querySelector('.batch-list');
+      if (!batchList) return;
+      batchList.innerHTML = '';
+      if (!itemCode) return;
+      const rows = getInventoryRows(itemCode, '');
+      const batches = uniqueSorted(rows.map(function (r) { return String(r.batchId || '').trim(); }));
+      batches.forEach(function (b) {
+        const opt = document.createElement('option');
+        opt.value = b;
+        batchList.appendChild(opt);
+      });
+    }
+
+    function removeRow(btn) {
+      btn.closest('.item-row').remove();
+      evaluateSubmitState();
+    }
+
+    function wireQaSummaryEvents(row) {
+      const itemInput = row.querySelector('.item-input');
+      const batchInput = row.querySelector('.batch-input');
+      const binSelect = row.querySelector('.bin-select');
+      itemInput.addEventListener('blur', function () { refreshQaSummaryForRow(row); });
+      batchInput.addEventListener('blur', function () { refreshQaSummaryForRow(row); });
+      binSelect.addEventListener('change', function () { refreshQaSummaryForRow(row); });
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    function escHtml(s) {
+      return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    /**
+     * Renders structured version-warning chips inside a .version-warning-row element.
+     * Used by both PO-loaded consumption rows and manual dispatch rows.
+     */
+    function renderPoVersionBanner(el, warn, currentVersion) {
+      if (!el) return;
+      var raw = String(warn.message || '');
+      // Parse "... shelves: V1: BinA (10.00 KG) | V2: BinB (5.00 KG). You are receiving Vx."
+      var coreMatch = raw.match(/shelves[:\s]+(.*?)(?:\. You are receiving|\.\s*$)/s);
+      var core = coreMatch ? coreMatch[1].trim() : '';
+
+      var html = '<span style="font-weight:600;color:#D97706;margin-right:6px;">⚠ Older stock exists:</span>';
+      if (core) {
+        core.split(' | ').forEach(function (grp) {
+          var colonIdx = grp.indexOf(':');
+          if (colonIdx === -1) { html += '<span class="vw-chip">' + escHtml(grp.trim()) + '</span>'; return; }
+          var ver = grp.slice(0, colonIdx).trim();
+          var bins = grp.slice(colonIdx + 1).trim();
+          html += '<span class="vw-chip vw-ver">' + escHtml(ver) + '</span>';
+          bins.split(',').forEach(function (b) {
+            html += '<span class="vw-chip">' + escHtml(b.trim()) + '</span>';
+          });
+        });
+      }
+      html += '<span class="vw-chip vw-receiving">Now receiving: ' + escHtml(currentVersion) + '</span>';
+      el.innerHTML = html;
+    }
+
+    /**
+     * Called when item code is entered in a manual row.
+     * Fetches UOM from item master and updates the Qty label.
+     */
+    function lookupUomForRow(itemInput) {
+      var row = itemInput.closest('.item-row');
+      if (!row) return;
+      var code = String(itemInput.value || '').trim();
+      var qtyLabel = row.querySelector('.qty-label');
+      var qtyInput = row.querySelector('.qty-input');
+      var uomSelect = row.querySelector('.uom-select');
+      if (!code) {
+        setDispatchUomOptions(uomSelect, ['KG'], 'KG');
+        applyDispatchQtyUom(row, 'KG');
+        if (qtyLabel) qtyLabel.textContent = 'Qty';
+        if (qtyInput) qtyInput.placeholder = 'Qty';
+        return;
+      }
+      google.script.run
+        .withSuccessHandler(function (uomInfo) {
+          var uom = (uomInfo && uomInfo.uomCode) ? String(uomInfo.uomCode).trim() : 'KG';
+          var opts = (uomInfo && Array.isArray(uomInfo.uomOptions) && uomInfo.uomOptions.length)
+            ? uomInfo.uomOptions.map(function (x) { return String(x || '').trim().toUpperCase(); }).filter(Boolean)
+            : [uom];
+          setDispatchUomOptions(uomSelect, opts, uom);
+          applyDispatchQtyUom(row, (uomSelect && uomSelect.value) ? uomSelect.value : uom);
+          if (qtyLabel) qtyLabel.textContent = 'Qty (' + ((uomSelect && uomSelect.value) ? uomSelect.value : uom) + ')';
+          if (qtyInput) qtyInput.placeholder = 'Qty';
+        })
+        .withFailureHandler(function () { })
+        .getItemUomForForm(code);
+    }
+
+    function setDispatchUomOptions(selectEl, options, preferred) {
+      if (!selectEl) return;
+      var list = Array.from(new Set((options || []).map(function (o) {
+        return String(o || '').trim().toUpperCase();
+      }).filter(Boolean)));
+      if (list.length === 0) list = ['KG'];
+      var pick = String(preferred || selectEl.value || list[0] || 'KG').trim().toUpperCase();
+      selectEl.innerHTML = '';
+      list.forEach(function (u) {
+        var opt = document.createElement('option');
+        opt.value = u;
+        opt.textContent = u;
+        selectEl.appendChild(opt);
+      });
+      selectEl.value = list.indexOf(pick) >= 0 ? pick : list[0];
+    }
+
+    function applyDispatchQtyUom(row, uomCode) {
+      if (!row) return;
+      var qtyInput = row.querySelector('.qty-input');
+      var qtyLabel = row.querySelector('.qty-label');
+      var uom = String(uomCode || 'KG').trim().toUpperCase() || 'KG';
+      if (!qtyInput) return;
+      qtyInput.dataset.uom = uom;
+      var discrete = ['NOS', 'PCS', 'PC', 'EA', 'UNIT', 'UNITS'].indexOf(uom) >= 0;
+      qtyInput.step = discrete ? '1' : '0.01';
+      qtyInput.min = discrete ? '1' : '0.01';
+      if (discrete && qtyInput.value && qtyInput.value.indexOf('.') >= 0) {
+        qtyInput.value = String(Math.round(Number(qtyInput.value) || 0));
+      }
+      if (qtyLabel) qtyLabel.textContent = 'Qty (' + uom + ')';
+    }
+
+
+
+    function refreshQaSummaryForRow(row) {
+      const itemCode = row.querySelector('.item-input').value.trim();
+      const batchId = row.querySelector('.batch-input').value.trim();
+      const binId = row.querySelector('.bin-select').value;
+      const summaryEl = row.querySelector('.qa-summary');
+      const warnEl = row.querySelector('.version-warning');
+
+      row.dataset.qaBlocked = 'false';
+      row.dataset.versionConflict = 'false';
+
+      if (!itemCode || !batchId || !binId) {
+        summaryEl.textContent = '';
+        if (warnEl) warnEl.textContent = '';
+        evaluateSubmitState();
+        return;
+      }
+
+      summaryEl.textContent = 'Checking QA...';
+      google.script.run
+        .withSuccessHandler(function (res) {
+          const approved = Number(res.approved || 0);
+          const pending = Number(res.pending || 0);
+          const rejected = Number(res.rejected || 0);
+          const overridden = Number(res.overridden || 0);
+          const closed = Number(res.closed || 0);
+          const version = res.version || '';
+          const conflict = res.versionConflict === true;
+
+          summaryEl.textContent =
+            'QA: Approved ' + approved + ' | Pending ' + pending + ' | Rejected ' + rejected +
+            (overridden > 0 ? ' | Overridden ' + overridden : '') +
+            (closed > 0 ? ' | Closed ' + closed : '') +
+            (version ? ' | Version: ' + version : '');
+
+          if (conflict) {
+            summaryEl.textContent += ' | Version conflict';
+            row.dataset.versionConflict = 'true';
+          }
+          if (pending > 0 || rejected > 0) row.dataset.qaBlocked = 'true';
+          evaluateSubmitState();
+
+          // Version warning (BUG-1 FIX â€” function now exists)
+          if (warnEl && version) {
+            google.script.run
+              .withSuccessHandler(function (w) {
+                warnEl.textContent = (w && w.message) ? w.message : '';
+              })
+              .getVersionDispatchWarning(itemCode, version);
+          } else if (warnEl) {
+            warnEl.textContent = '';
+          }
+        })
+        .withFailureHandler(function () {
+          summaryEl.textContent = 'QA check failed';
+          row.dataset.qaBlocked = 'true';
+          evaluateSubmitState();
+        })
+        .getQaSummary(itemCode, batchId, binId);
+    }
+
+    // â”€â”€ Location cascade â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    function loadLocationsForRow(siteSelect) {
+      const row = siteSelect.closest('.item-row') || siteSelect.closest('.po-item-row');
+      const locSelect = row.querySelector('.location-select');
+      const binSelect = row.querySelector('.bin-select');
+      const site = siteSelect.value;
+
+      locSelect.innerHTML = '<option value="">Select Location...</option>';
+      binSelect.innerHTML = '<option value="">Select Bin...</option>';
+      binSelect.disabled = true;
+
+      if (!site) { locSelect.disabled = true; return; }
+
+      const filtered = locationsMasterData.filter(function (l) { return l.site === site; });
+      filtered.forEach(function (loc) {
+        const opt = document.createElement('option');
+        opt.value = loc.location;
+        opt.textContent = loc.location;
+        locSelect.appendChild(opt);
+      });
+      locSelect.disabled = false;
+    }
+
+    function filterBinsForRow(locSelect) {
+      const row = locSelect.closest('.item-row') || locSelect.closest('.po-item-row');
+      const siteSelect = row.querySelector('.site-select');
+      const binSelect = row.querySelector('.bin-select');
+      const site = siteSelect.value;
+      const location = locSelect.value;
+
+      binSelect.innerHTML = '<option value="">Select Bin...</option>';
+      if (!location || !site) { binSelect.disabled = true; return; }
+
+      binsData.forEach(function (bin) {
+        if (bin.location === location && bin.site === site) {
+          const opt = document.createElement('option');
+          opt.value = bin.binId;
+          opt.textContent = bin.binCode || bin.binId;
+          binSelect.appendChild(opt);
+        }
+      });
+      binSelect.disabled = false;
+      // Trigger QA refresh for the row
+      const binSelectEl = row.querySelector('.bin-select');
+      binSelectEl.dispatchEvent(new Event('change'));
+    }
+
+    // â”€â”€ QA override â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    function setupQaOverride() {
+      const overrideSection = document.getElementById('qaOverrideSection');
+      const overrideCheckbox = document.getElementById('qaOverride');
+      const overrideReason = document.getElementById('qaOverrideReason');
+
+      if (IS_READ_ONLY) { overrideSection.classList.add('d-none'); return; }
+      if (USER_ROLE === 'MANAGER') overrideSection.classList.remove('d-none');
+
+      overrideCheckbox.addEventListener('change', function () {
+        overrideReason.disabled = !overrideCheckbox.checked;
+        evaluateSubmitState();
+      });
+    }
+
+    /** FIX: Looks up UOM for an item and updates the qty label in manual dispatch rows */
+    function lookupUomForDispatchRow(row) {
+      if (!row) return;
+      var itemCode = '';
+      var inp = row.querySelector('.item-input');
+      if (inp) itemCode = String(inp.value || '').trim();
+      if (!itemCode) return;
+      var qtyLabel = row.querySelector('.qty-label');
+      var qtyInput = row.querySelector('.qty-input');
+      var uomSelect = row.querySelector('.uom-select');
+      google.script.run
+        .withSuccessHandler(function (uomInfo) {
+          var uom = (uomInfo && uomInfo.uomCode) ? String(uomInfo.uomCode) : 'KG';
+          var opts = (uomInfo && Array.isArray(uomInfo.uomOptions) && uomInfo.uomOptions.length)
+            ? uomInfo.uomOptions.map(function (x) { return String(x || '').trim().toUpperCase(); }).filter(Boolean)
+            : [uom];
+          setDispatchUomOptions(uomSelect, opts, uom);
+          applyDispatchQtyUom(row, (uomSelect && uomSelect.value) ? uomSelect.value : uom);
+          if (qtyLabel) qtyLabel.textContent = 'Qty (' + ((uomSelect && uomSelect.value) ? uomSelect.value : uom) + ')';
+          if (qtyInput) qtyInput.placeholder = 'Qty';
+        })
+        .withFailureHandler(function () { })
+        .getItemUomForForm(itemCode);
+    }
+
+
+    function evaluateSubmitState() {
+      const submitBtn = document.getElementById('submitBtn');
+      const qaMsg = document.getElementById('qaBlockMsg');
+      const overrideChecked = document.getElementById('qaOverride')
+        ? document.getElementById('qaOverride').checked : false;
+      const type = document.getElementById('moveType').value;
+
+      if (IS_READ_ONLY) {
+        submitBtn.disabled = true;
+        qaMsg.textContent = 'Read-only access';
+        qaMsg.classList.remove('d-none');
+        return;
+      }
+
+      if (poItemsLoaded) {
+        const rows = Array.from(document.querySelectorAll('.po-item-row'));
+        const allValid = rows.length > 0 && rows.every(function (r) { return r.dataset.allocValid === 'true'; });
+        submitBtn.disabled = !allValid;
+        if (!allValid) {
+          qaMsg.textContent = 'Allocate exact required quantity from available bins for each PO item.';
+          qaMsg.classList.remove('d-none');
+        } else {
+          qaMsg.classList.add('d-none');
+        }
+        return;
+      }
+
+      let blocked = false;
+      document.querySelectorAll('.item-row').forEach(function (row) {
+        if (row.dataset.versionConflict === 'true') blocked = true;
+        if (row.dataset.qaBlocked === 'true' && !overrideChecked) blocked = true;
+      });
+
+      if (blocked) {
+        submitBtn.disabled = true;
+        qaMsg.textContent = 'QA approval required before ' + (type === 'DISPATCH' ? 'dispatch' : 'consumption');
+        qaMsg.classList.remove('d-none');
+      } else {
+        submitBtn.disabled = false;
+        qaMsg.classList.add('d-none');
+      }
+    }
+    function handleFormSubmit(e) {
+      e.preventDefault();
+      if (IS_READ_ONLY) {
+        alert('Read-only access. Submissions are disabled.');
+        return;
+      }
+
+      const submitBtn = document.getElementById('submitBtn');
+      const loading = document.getElementById('loading');
+      submitBtn.disabled = true;
+      loading.classList.remove('d-none');
+
+      const type = document.getElementById('moveType').value;
+      const prodOrder = document.getElementById('prodOrderNo').value;
+      const remarks = document.getElementById('remarks').value;
+      const qaOverride = document.getElementById('qaOverride') ? document.getElementById('qaOverride').checked : false;
+      const qaOverrideReason = document.getElementById('qaOverrideReason') ? document.getElementById('qaOverrideReason').value.trim() : '';
+
+      if (qaOverride && !qaOverrideReason) {
+        alert('QA override reason required');
+        submitBtn.disabled = false;
+        loading.classList.add('d-none');
+        return;
+      }
+      if (qaOverride) {
+        if (!confirm('Override QA and proceed with ' + (type === 'DISPATCH' ? 'dispatch' : 'consumption') + '?')) {
+          submitBtn.disabled = false;
+          loading.classList.add('d-none');
+          return;
+        }
+      }
+
+      const items = [];
+
+      if (poItemsLoaded) {
+        const unresolved = [];
+        const poRows = Array.from(document.querySelectorAll('.po-item-row'));
+        const invalid = poRows.some(function (row) { return row.dataset.allocValid !== 'true'; });
+        if (invalid) {
+          alert('Please complete bin allocation before submitting.');
+          submitBtn.disabled = false;
+          loading.classList.add('d-none');
+          return;
+        }
+
+        poRows.forEach(function (row) {
+          const itemCode = String(row.dataset.itemCode || row.querySelector('.item-input').value || '').trim();
+          const ledgerItemId = String(row.dataset.itemId || '').trim();
+          const ledgerBatchId = String(row.dataset.ledgerBatchId || '').trim();
+          const binOptions = JSON.parse(row.dataset.binOptions || '[]');
+          const optionMap = {};
+          binOptions.forEach(function (b) {
+            const key = String(b.optionKey || _buildPoSourceKey('', b.binId));
+            optionMap[key] = b;
+          });
+
+          row.querySelectorAll('.po-alloc-row').forEach(function (alloc) {
+            const sourceKey = String(alloc.querySelector('.po-bin-select').value || '').trim();
+            const source = _parsePoSourceKey(sourceKey);
+            const binId = String(source.binId || '').trim();
+            const qty = Number(alloc.querySelector('.po-qty-input').value);
+            if (!binId || !isFinite(qty) || qty <= 0) return;
+
+            const srcMeta = optionMap[sourceKey];
+            if (!srcMeta) {
+              unresolved.push(itemCode + ' / ' + binId + ' (source metadata missing)');
+              return;
+            }
+
+            let remaining = qty;
+            const buckets = Array.isArray(srcMeta.batchBuckets) ? srcMeta.batchBuckets : [];
+            if (buckets.length === 0) {
+              // Bin list came from warehouse dashboard fallback (no batch buckets on client).
+              // Server will split across batches in selected bin.
+              items.push({
+                itemCode: itemCode,
+                ledgerItemId: ledgerItemId,
+                lotNo: '',
+                batchId: '',
+                quantity: qty,
+                uom: String(row.dataset.uom || 'KG'),
+                binId: binId,
+                ledgerBatchId: ledgerBatchId,
+                binOnly: true
+              });
+              return;
+            }
+
+            let mappedAny = false;
+            for (let i = 0; i < buckets.length && remaining > 0.0001; i++) {
+              const b = buckets[i] || {};
+              const bId = String(b.batchId || '').trim();
+              const avail = Number(b.totalQty || 0);
+              if (!bId || avail <= 0) continue;
+              const pick = Math.min(remaining, avail);
+              if (pick <= 0) continue;
+              items.push({
+                itemCode: itemCode,
+                ledgerItemId: ledgerItemId,
+                lotNo: '',
+                batchId: bId,
+                quantity: pick,
+                uom: String(row.dataset.uom || 'KG'),
+                binId: binId,
+                ledgerBatchId: ledgerBatchId
+              });
+              mappedAny = true;
+              remaining -= pick;
+            }
+
+            if (!mappedAny) {
+              items.push({
+                itemCode: itemCode,
+                ledgerItemId: ledgerItemId,
+                lotNo: '',
+                batchId: '',
+                quantity: qty,
+                uom: String(row.dataset.uom || 'KG'),
+                binId: binId,
+                ledgerBatchId: ledgerBatchId,
+                binOnly: true
+              });
+              return;
+            }
+
+            if (remaining > 0.0001) {
+              unresolved.push(itemCode + ' / ' + (srcMeta.binCode || binId) + ' (' + remaining.toFixed(3) + ' qty has no batch mapping)');
+            }
+          });
+        });
+
+        if (unresolved.length > 0) {
+          alert('Unable to map selected bin qty to inventory batches:\n- ' + unresolved.join('\n- ') + '\n\nPlease check Batch ID data in Inventory_Balance for these bins.');
+          submitBtn.disabled = false;
+          loading.classList.add('d-none');
+          return;
+        }
+      } else {
+        const allRows = document.querySelectorAll('.item-row');
+        allRows.forEach(function (row) {
+          var qtyInp = row.querySelector('.qty-input');
+          var itemCode = row.querySelector('.item-input').value.trim();
+          var binSelect = row.querySelector('.bin-select');
+          var binId = binSelect ? binSelect.value : '';
+
+          // Source split bins
+          var srcContainer = row.querySelector('.src-splits-container');
+          var isSplit = srcContainer && srcContainer.style.display !== 'none';
+          var sourceSplits = [];
+          if (isSplit) {
+            var splitRows = srcContainer.querySelectorAll('.split-row');
+            splitRows.forEach(function (sr) {
+              var sBinId = sr.querySelector('.split-bin-select').value;
+              var sQty = Number(sr.querySelector('.split-qty-input').value);
+              if (sBinId && sQty > 0) {
+                sourceSplits.push({ binId: sBinId, quantity: sQty });
+              }
+            });
+            binId = ''; // Set main binId to empty when split bins are used
+          }
+
+          items.push({
+            itemCode: itemCode,
+            lotNo: row.querySelector('.lot-input').value.trim(),
+            batchId: row.querySelector('.batch-input').value.trim(),
+            quantity: Number(qtyInp.value),
+            uom: String((row.querySelector('.uom-select') || {}).value || qtyInp.dataset.uom || 'KG'),
+            binId: binId,
+            sourceSplits: sourceSplits
+          });
+        });
+      }
+
+      if (items.length === 0) {
+        alert('No valid item rows to submit.');
+        submitBtn.disabled = false;
+        loading.classList.add('d-none');
+        return;
+      }
+
+      const payload = { items: items, remarks: remarks, prodOrderNo: prodOrder, qaOverride: qaOverride, qaOverrideReason: qaOverrideReason };
+
+      if (type === 'DISPATCH') {
+        google.script.run
+          .withSuccessHandler(onSuccess)
+          .withFailureHandler(onFailure)
+          .submitDispatchV2(payload);
+      } else {
+        google.script.run
+          .withSuccessHandler(function (result) {
+            submitBtn.disabled = false;
+            loading.classList.add('d-none');
+            google.script.run.clearDashboardCache();
+            refreshInventorySnapshot();
+            alert('SUCCESS!\n\nStock consumed successfully.\n\n' + (result.message || 'Transaction recorded.'));
+            document.getElementById('dispatchForm').reset();
+            document.getElementById('poStatusMsg').textContent = '';
+            clearPORows();
+            addItemRow();
+          })
+          .withFailureHandler(onFailure)
+          .submitConsumptionV2(payload);
+      }
+    }
+    function onSuccess() {
+      document.getElementById('dispatchForm').reset();
+      document.getElementById('itemsContainer').innerHTML = '';
+      itemCount = 0;
+      poItemsLoaded = false;
+      document.getElementById('addItemBtn').style.display = '';
+      addItemRow();
+      document.getElementById('submitBtn').disabled = false;
+      document.getElementById('loading').className = 'text-center mt-3 d-none';
+      google.script.run.clearDashboardCache();
+      refreshInventorySnapshot();
+      alert('Movement Recorded Successfully!');
+      goBack();
+    }
+
+    function onFailure(error) {
+      document.getElementById('submitBtn').disabled = false;
+      document.getElementById('loading').className = 'text-center mt-3 d-none';
+      alert('ERROR: ' + error.message);
+    }
+
+    function escHtml(str) {
+      return String(str || '')
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    function goBack() {
+      if (navInProgress) return;
+      navInProgress = true;
+      destroyScreen();
+      google.script.run
+        .withSuccessHandler(function (url) {
+          window.top.location.href = url + '?form=dashboard';
+        })
+        .withFailureHandler(function () {
+          window.top.location.reload();
+        })
+        .getScriptUrl();
+    }
+
+    function toggleSourceSplitMode(btn) {
+      if (!btn) return;
+      const row = btn.closest('.item-row');
+      const container = row.querySelector('.src-splits-container');
+      const singleSelect = row.querySelector('.bin-select');
+      const toolbarText = btn.previousElementSibling;
+
+      if (container.style.display === 'none') {
+        container.style.display = 'block';
+        singleSelect.style.display = 'none';
+        singleSelect.required = false;
+        toolbarText.textContent = 'SPLIT BINS';
+        btn.innerHTML = '<i class="fa-solid fa-square me-1"></i>SINGLE BIN';
+        if (container.querySelector('.src-splits-list').children.length === 0) {
+          addSourceSplitRow(btn);
+        }
+      } else {
+        container.style.display = 'none';
+        singleSelect.style.display = 'block';
+        singleSelect.required = true;
+        toolbarText.textContent = 'SINGLE BIN';
+        btn.innerHTML = '<i class="fa-solid fa-layer-group me-1"></i>SPLIT BINS';
+      }
+      updateSrcSplitTotals(row);
+    }
+
+    function initSourceSplitForRow(row) {
+      if (!row) return;
+      new Sortable(row.querySelector('.src-splits-list'), {
+        animation: 150,
+        handle: '.split-row',
+        ghostClass: 'bg-light'
+      });
+      const qtyInp = row.querySelector('.qty-input');
+      if (qtyInp) {
+        qtyInp.addEventListener('input', function () { updateSrcSplitTotals(row); });
+      }
+    }
+
+    function addSourceSplitRow(btn) {
+      const row = btn.closest('.item-row');
+      const list = row.querySelector('.src-splits-list');
+      const site = row.querySelector('.site-select').value;
+      const location = row.querySelector('.location-select').value;
+
+      const splitRow = document.createElement('div');
+      splitRow.className = 'split-row';
+      splitRow.innerHTML = `
+        <select class="form-select form-select-sm split-bin-select" required>
+          <option value="">Select Bin...</option>
+        </select>
+        <input type="number" class="form-control form-select-sm split-qty-input" placeholder="Qty" step="0.01" min="0.01" required>
+        <button type="button" class="btn btn-sm btn-link text-danger p-0" onclick="removeSourceSplitRow(this)">
+          <i class="fa-solid fa-circle-minus"></i>
+        </button>
+      `;
+
+      list.appendChild(splitRow);
+      populateSplitBinSelect(splitRow.querySelector('.split-bin-select'), site, location);
+
+      splitRow.querySelector('.split-qty-input').addEventListener('input', function () {
+        updateSrcSplitTotals(row);
+      });
+
+      updateSrcSplitTotals(row);
+    }
+
+    function removeSourceSplitRow(btn) {
+      const row = btn.closest('.item-row');
+      btn.closest('.split-row').remove();
+      updateSrcSplitTotals(row);
+    }
+
+    function updateSrcSplitTotals(row) {
+      if (!row) return;
+      const container = row.querySelector('.src-splits-container');
+      if (container.style.display === 'none') return;
+
+      const totalQty = Number(row.querySelector('.qty-input').value) || 0;
+      const splits = container.querySelectorAll('.split-qty-input');
+      let currentSum = 0;
+      splits.forEach(function (s) { currentSum += (Number(s.value) || 0); });
+
+      const sumDisplay = container.querySelector('.split-total-qty');
+      const totalDisplay = container.querySelector('.row-total-qty');
+      const infoBox = container.querySelector('.split-total-info');
+
+      sumDisplay.textContent = currentSum.toFixed(2);
+      totalDisplay.textContent = totalQty.toFixed(2);
+
+      if (Math.abs(currentSum - totalQty) > 0.001) {
+        infoBox.classList.add('error');
+        infoBox.classList.remove('ok');
+      } else {
+        infoBox.classList.add('ok');
+        infoBox.classList.remove('error');
+      }
+    }
+
+    function populateSplitBinSelect(select, site, location) {
+      if (!select) return;
+      select.innerHTML = '<option value="">Select Bin...</option>';
+      if (!site || !location) return;
+
+      binsData.forEach(function (bin) {
+        if (bin.site === site && bin.location === location) {
+          const opt = document.createElement('option');
+          opt.value = bin.binId;
+          opt.textContent = bin.binCode;
+          select.appendChild(opt);
+        }
+      });
+    }
+
+    function destroyScreen() {
+      inventoryData = [];
+      binsData = [];
+      binMap = {};
+      locationsMasterData = [];
+      inventoryLoaded = false;
+      binsLoaded = false;
+      locationsLoaded = false;
+      poItemsLoaded = false;
+      itemCount = 0;
+      const container = document.getElementById('itemsContainer');
+      if (container) container.innerHTML = '';
+    }
+  </script>
+</body>
+
+</html>

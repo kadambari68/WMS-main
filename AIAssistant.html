@@ -1,0 +1,967 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <base target="_top">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WMS — Knowledge Assistant</title>
+  <link
+    href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@300;400;500;600;700&display=swap"
+    rel="stylesheet">
+  <style>
+    :root {
+      --ink: #0f1117;
+      --surface: #181c24;
+      --panel: #1e2330;
+      --border: #2a3045;
+      --border2: #3a4460;
+      --amber: #e8c547;
+      --amber-dim: #b8961e;
+      --amber-bg: #e8c54710;
+      --slate: #8892a4;
+      --text: #d4dae8;
+      --text-dim: #6b7585;
+      --green: #3ddc84;
+      --red: #ff5f5f;
+      --blue: #5ba4f5;
+      --mono: 'IBM Plex Mono', monospace;
+      --sans: 'IBM Plex Sans', sans-serif;
+    }
+
+    *,
+    *::before,
+    *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: var(--sans);
+      background: var(--ink);
+      color: var(--text);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* TOP BAR */
+    .topbar {
+      background: var(--surface);
+      border-bottom: 2px solid var(--amber);
+      padding: 0 24px;
+      height: 54px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+
+    .topbar-brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .topbar-logo {
+      width: 32px;
+      height: 32px;
+      background: var(--amber);
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+      flex-shrink: 0;
+    }
+
+    .topbar-title {
+      font-family: var(--mono);
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--amber);
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+
+    .topbar-sub {
+      font-size: 11px;
+      color: var(--text-dim);
+      margin-top: 1px;
+    }
+
+    .topbar-right {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .user-pill {
+      background: var(--panel);
+      border: 1px solid var(--border2);
+      border-radius: 20px;
+      padding: 5px 12px;
+      font-size: 11px;
+      color: var(--slate);
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .role-tag {
+      font-family: var(--mono);
+      font-size: 10px;
+      font-weight: 600;
+      padding: 2px 6px;
+      border-radius: 3px;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+    }
+
+    .role-MANAGER {
+      background: #2a4a2e;
+      color: var(--green);
+    }
+
+    .role-QUALITY_MANAGER {
+      background: #2a3a4a;
+      color: var(--blue);
+    }
+
+    .role-WORKER {
+      background: #3a3a1e;
+      color: var(--amber);
+    }
+
+    .nav-btn {
+      background: none;
+      border: 1px solid var(--border2);
+      color: var(--slate);
+      padding: 6px 14px;
+      border-radius: 4px;
+      font-family: var(--sans);
+      font-size: 12px;
+      cursor: pointer;
+      transition: all .15s;
+    }
+
+    .nav-btn:hover {
+      border-color: var(--amber);
+      color: var(--amber);
+    }
+
+    /* LAYOUT */
+    .layout {
+      display: grid;
+      grid-template-columns: 1fr 280px;
+      min-height: calc(100vh - 54px);
+    }
+
+    @media(max-width:860px) {
+      .layout {
+        grid-template-columns: 1fr;
+      }
+
+      .sidebar {
+        display: none;
+      }
+    }
+
+    .main {
+      padding: 28px 32px;
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    /* SECTION LABEL */
+    .slabel {
+      font-family: var(--mono);
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: .15em;
+      text-transform: uppercase;
+      color: var(--amber);
+      margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .slabel::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: var(--border);
+    }
+
+    /* INPUT CARD */
+    .input-card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 20px;
+    }
+
+    .input-card:focus-within {
+      border-color: var(--amber-dim);
+    }
+
+    textarea {
+      width: 100%;
+      background: transparent;
+      border: none;
+      outline: none;
+      color: var(--text);
+      font-family: var(--sans);
+      font-size: 15px;
+      line-height: 1.6;
+      resize: none;
+      min-height: 80px;
+      caret-color: var(--amber);
+    }
+
+    textarea::placeholder {
+      color: var(--text-dim);
+    }
+
+    .input-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 14px;
+      padding-top: 14px;
+      border-top: 1px solid var(--border);
+    }
+
+    .char-count {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--text-dim);
+    }
+
+    .char-count.warn {
+      color: var(--red);
+    }
+
+    .key-hint {
+      font-size: 11px;
+      color: var(--text-dim);
+      margin-left: 12px;
+    }
+
+    .key-hint kbd {
+      background: var(--border);
+      border-radius: 3px;
+      padding: 1px 5px;
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--slate);
+    }
+
+    .submit-btn {
+      background: var(--amber);
+      color: var(--ink);
+      border: none;
+      padding: 10px 22px;
+      border-radius: 4px;
+      font-family: var(--mono);
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: .05em;
+      cursor: pointer;
+      transition: all .15s;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .submit-btn:hover:not(:disabled) {
+      background: #f0d060;
+    }
+
+    .submit-btn:disabled {
+      opacity: .35;
+      cursor: not-allowed;
+    }
+
+    /* LOADING */
+    .loading {
+      display: none;
+      align-items: center;
+      gap: 14px;
+      padding: 16px 0;
+      color: var(--slate);
+      font-size: 13px;
+    }
+
+    .loading.active {
+      display: flex;
+      animation: fadeIn .2s ease;
+    }
+
+    .spinner {
+      width: 20px;
+      height: 20px;
+      border: 2px solid var(--border2);
+      border-top-color: var(--amber);
+      border-radius: 50%;
+      animation: spin .75s linear infinite;
+      flex-shrink: 0;
+    }
+
+    @keyframes spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+
+    .dot-pulse {
+      display: flex;
+      gap: 4px;
+      align-items: center;
+    }
+
+    .dot-pulse span {
+      width: 5px;
+      height: 5px;
+      background: var(--amber-dim);
+      border-radius: 50%;
+      animation: pulse 1.2s ease-in-out infinite;
+    }
+
+    .dot-pulse span:nth-child(2) {
+      animation-delay: .2s;
+    }
+
+    .dot-pulse span:nth-child(3) {
+      animation-delay: .4s;
+    }
+
+    @keyframes pulse {
+
+      0%,
+      80%,
+      100% {
+        opacity: .2
+      }
+
+      40% {
+        opacity: 1
+      }
+    }
+
+    @keyframes fadeIn {
+      from {
+        opacity: 0;
+        transform: translateY(4px)
+      }
+
+      to {
+        opacity: 1;
+        transform: translateY(0)
+      }
+    }
+
+    /* RESULT */
+    .result {
+      display: none;
+    }
+
+    .result.active {
+      display: block;
+      animation: fadeIn .2s ease;
+    }
+
+    .result-meta {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 14px;
+      flex-wrap: wrap;
+    }
+
+    .mtag {
+      font-family: var(--mono);
+      font-size: 10px;
+      font-weight: 600;
+      padding: 3px 8px;
+      border-radius: 3px;
+      letter-spacing: .05em;
+      text-transform: uppercase;
+    }
+
+    .tag-ok {
+      background: #1a3a2a;
+      color: var(--green);
+      border: 1px solid #2a5a3a;
+    }
+
+    .tag-none {
+      background: #2a2a1a;
+      color: var(--amber);
+      border: 1px solid #4a4a2a;
+    }
+
+    .tag-blocked {
+      background: #3a1a1a;
+      color: var(--red);
+      border: 1px solid #5a2a2a;
+    }
+
+    .tag-err {
+      background: #2a1a1a;
+      color: #ff8c4a;
+      border: 1px solid #4a2a1a;
+    }
+
+    .tag-flag {
+      background: #3a2a1a;
+      color: #ff8c4a;
+      border: 1px solid #5a3a1a;
+    }
+
+    .source-chips {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      margin-bottom: 14px;
+    }
+
+    .chip {
+      font-family: var(--mono);
+      font-size: 10px;
+      font-weight: 600;
+      padding: 3px 8px;
+      border-radius: 3px;
+      background: var(--amber-bg);
+      border: 1px solid var(--amber-dim);
+      color: var(--amber);
+      letter-spacing: .04em;
+    }
+
+    .answer-box {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 20px;
+      font-size: 13.5px;
+      line-height: 1.75;
+      color: var(--text);
+      white-space: pre-wrap;
+      word-break: break-word;
+      max-height: 480px;
+      overflow-y: auto;
+    }
+
+    .answer-box::-webkit-scrollbar {
+      width: 4px;
+    }
+
+    .answer-box::-webkit-scrollbar-thumb {
+      background: var(--border2);
+      border-radius: 2px;
+    }
+
+    .answer-box.blocked {
+      border-left: 3px solid var(--red);
+    }
+
+    .answer-box.flagged {
+      border-left: 3px solid #ff8c4a;
+    }
+
+    .caution-banner {
+      background: #3a2a1a;
+      border: 1px solid #5a3a1a;
+      border-radius: 4px;
+      padding: 10px 14px;
+      font-size: 12px;
+      color: #ff8c4a;
+      display: none;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+
+    .caution-banner.active {
+      display: flex;
+      align-items: flex-start;
+    }
+
+    .feedback {
+      display: none;
+      align-items: center;
+      gap: 12px;
+      margin-top: 14px;
+      padding-top: 14px;
+      border-top: 1px solid var(--border);
+    }
+
+    .feedback.active {
+      display: flex;
+    }
+
+    .feedback-label {
+      font-size: 11px;
+      color: var(--text-dim);
+    }
+
+    .fb-btn {
+      background: var(--panel);
+      border: 1px solid var(--border2);
+      color: var(--slate);
+      padding: 5px 12px;
+      border-radius: 4px;
+      font-size: 13px;
+      cursor: pointer;
+      transition: all .15s;
+    }
+
+    .fb-btn:hover {
+      border-color: var(--amber);
+      color: var(--amber);
+    }
+
+    .fb-btn.selected {
+      border-color: var(--amber);
+      background: var(--amber-bg);
+      color: var(--amber);
+    }
+
+    .feedback-thanks {
+      font-size: 11px;
+      color: var(--green);
+      display: none;
+    }
+
+    .empty-state {
+      padding: 48px 0;
+      text-align: center;
+      color: var(--text-dim);
+      font-size: 13px;
+    }
+
+    .empty-state .big {
+      font-size: 36px;
+      margin-bottom: 14px;
+    }
+
+    .empty-state p {
+      max-width: 340px;
+      margin: 0 auto;
+      line-height: 1.7;
+    }
+
+    /* SIDEBAR */
+    .sidebar {
+      background: var(--surface);
+      padding: 24px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 22px;
+      overflow-y: auto;
+    }
+
+    .stitle {
+      font-family: var(--mono);
+      font-size: 9px;
+      font-weight: 600;
+      letter-spacing: .2em;
+      text-transform: uppercase;
+      color: var(--text-dim);
+      margin-bottom: 10px;
+    }
+
+    .quick-list {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .ql-item {
+      padding: 8px 10px;
+      border-radius: 4px;
+      font-size: 12px;
+      color: var(--slate);
+      cursor: pointer;
+      transition: all .12s;
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      line-height: 1.4;
+    }
+
+    .ql-item:hover {
+      background: var(--panel);
+      color: var(--text);
+    }
+
+    .ql-icon {
+      font-size: 13px;
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+
+    .hist-list {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .hist-item {
+      padding: 7px 10px;
+      border-radius: 4px;
+      font-size: 11px;
+      color: var(--text-dim);
+      cursor: pointer;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      transition: all .12s;
+    }
+
+    .hist-item:hover {
+      background: var(--panel);
+      color: var(--text);
+    }
+
+    .hist-empty {
+      font-size: 11px;
+      color: var(--text-dim);
+      padding: 4px 10px;
+      font-style: italic;
+    }
+
+    .sdiv {
+      height: 1px;
+      background: var(--border);
+    }
+
+    .stats-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+    }
+
+    .stat {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 10px 8px;
+      text-align: center;
+    }
+
+    .stat-n {
+      font-family: var(--mono);
+      font-size: 18px;
+      font-weight: 600;
+      color: var(--amber);
+    }
+
+    .stat-l {
+      font-size: 10px;
+      color: var(--text-dim);
+      margin-top: 2px;
+    }
+
+    .about-box {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 12px;
+      font-size: 11px;
+      color: var(--text-dim);
+      line-height: 1.7;
+    }
+
+    .about-box strong {
+      color: var(--text);
+    }
+  </style>
+</head>
+
+<body>
+  <div class="topbar">
+    <div class="topbar-brand">
+      <div class="topbar-logo">📦</div>
+      <div>
+        <div class="topbar-title">WMS / Knowledge Assistant</div>
+        <div class="topbar-sub">Cultivator Natural Products — Internal Use Only</div>
+      </div>
+    </div>
+    <div class="topbar-right">
+      <div class="user-pill">
+        <span id="userEmail">—</span>
+        <span class="role-tag" id="userRoleTag">—</span>
+      </div>
+      <button class="nav-btn" onclick="navTo('dashboard')">← Dashboard</button>
+    </div>
+  </div>
+
+  <div class="layout">
+    <div class="main">
+      <div>
+        <div class="slabel">Ask a Question</div>
+        <div class="input-card">
+          <textarea id="queryInput"
+          placeholder="Type your question… e.g.  How do I dispatch stock?   What is FIFO?   Why is my transaction blocked?"
+          maxlength="500" oninput="onInput(this)" rows="3"></textarea>
+          <div class="input-footer">
+            <div style="display:flex;align-items:center;">
+              <span class="char-count" id="charCount">0 / 500</span>
+              <span class="key-hint"><kbd>Ctrl</kbd>+<kbd>Enter</kbd> to submit</span>
+            </div>
+            <button class="submit-btn" id="submitBtn" onclick="doSubmit()" disabled>
+            SEARCH →
+          </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="loading" id="loading">
+        <div class="spinner"></div>
+        <span>Reading live data and workflow rules</span>
+        <div class="dot-pulse"><span></span><span></span><span></span></div>
+      </div>
+
+      <div class="empty-state" id="emptyState">
+        <div class="big">🔍</div>
+        <p>Ask anything about warehouse operations — inward, dispatch, FIFO, QA approvals, production, error meanings,
+          and more.</p>
+      </div>
+
+      <div class="result" id="result">
+        <div class="slabel">Answer</div>
+        <div class="caution-banner" id="cautionBanner">⚠️ <span id="cautionText"></span></div>
+        <div class="result-meta">
+          <span class="mtag" id="statusTag"></span>
+          <span id="countLabel" style="font-size:12px;color:var(--text-dim);"></span>
+        </div>
+        <div class="source-chips" id="chips"></div>
+        <div class="answer-box" id="answerBox"></div>
+        <div class="feedback" id="feedbackRow">
+          <span class="feedback-label">Helpful?</span>
+          <button class="fb-btn" id="fbUp" onclick="fb(true)">👍</button>
+          <button class="fb-btn" id="fbDown" onclick="fb(false)">👎</button>
+          <span class="feedback-thanks" id="fbThanks">Thanks!</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="sidebar">
+      <div>
+        <div class="stitle">Quick Questions</div>
+        <div class="quick-list">
+          <div class="ql-item"
+            onclick="ask('inward workflow: mandatory fields, constraints, who can access, approvals, overrides')">
+            <span class="ql-icon">📥</span><span>Inward workflow rules</span></div>
+          <div class="ql-item"
+            onclick="ask('dispatch workflow: mandatory fields, constraints, who can access, approvals, overrides')">
+            <span class="ql-icon">🚚</span><span>Dispatch workflow rules</span></div>
+          <div class="ql-item"
+            onclick="ask('transfer workflow: mandatory fields, constraints, who can access, approvals, overrides')">
+            <span class="ql-icon">🔄</span><span>Transfer workflow rules</span></div>
+          <div class="ql-item"
+            onclick="ask('consumption workflow: mandatory fields, constraints, who can access, approvals, overrides')">
+            <span class="ql-icon">🏭</span><span>Consumption workflow rules</span></div>
+          <div class="ql-item"
+            onclick="ask('return from production workflow: mandatory fields, constraints, who can access, approvals, overrides')">
+            <span class="ql-icon">↩️</span><span>Return workflow rules</span></div>
+          <div class="ql-item"
+            onclick="ask('production order request workflow: mandatory fields, constraints, who can access, approvals, overrides')">
+            <span class="ql-icon">📋</span><span>PO request workflow rules</span></div>
+          <div class="ql-item"
+            onclick="ask('qa approval workflow: statuses, constraints, who can access, approvals, overrides')">
+            <span class="ql-icon">✅</span><span>QA workflow rules</span></div>
+          <div class="ql-item" onclick="ask('how does FIFO work in dispatch consumption and transfer')">
+            <span class="ql-icon">📊</span><span>FIFO rules</span></div>
+          <div class="ql-item" onclick="ask('bin capacity exceeded error and rack swl constraints')">
+            <span class="ql-icon">⚠️</span><span>Capacity constraints</span></div>
+          <div class="ql-item" onclick="ask('batch not found error solution')">
+            <span class="ql-icon">❌</span><span>Batch error guide</span></div>
+          <div class="ql-item" onclick="ask('dashboard metrics guide for manager')">
+            <span class="ql-icon">📈</span><span>Dashboard guide</span></div>
+        </div>
+      </div>
+      <div class="sdiv"></div>
+      <div>
+        <div class="stitle">This Session</div>
+        <div class="hist-list" id="histList">
+          <div class="hist-empty">No queries yet</div>
+        </div>
+      </div>
+      <div class="sdiv"></div>
+      <div id="statsSection" style="display:none">
+        <div class="stitle">Analytics</div>
+        <div class="stats-grid" id="statsGrid"></div>
+      </div>
+      <div id="statsDivider" class="sdiv" style="display:none"></div>
+      <div>
+        <div class="stitle">About</div>
+        <div class="about-box">
+          Answers from <strong>live WMS data and workflow rules in backend code</strong>.<br><br>
+        For blocked transactions, always contact your supervisor before proceeding.<br><br>
+          <span style="font-family:var(--mono);font-size:10px;color:var(--text-dim);">MODE: LIVE DATA + POLICY ENGINE</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    var _user={email:'',role:''}, _hist=[], _busy=false, _lastT=0;
+
+window.onload=function(){
+  document.getElementById('queryInput').addEventListener('keydown',function(e){
+    if(e.ctrlKey&&e.key==='Enter'){e.preventDefault();doSubmit();}
+  });
+  loadUser();
+};
+
+function loadUser(){
+  google.script.run
+    .withSuccessHandler(function(u){
+      _user=u||{};
+      var role=(u.role||'').toUpperCase();
+      document.getElementById('userEmail').textContent=(u.email||'—').split('@')[0];
+      var t=document.getElementById('userRoleTag');
+      t.textContent=role.replace('_',' ');
+      t.className='role-tag role-'+role;
+      if(role==='MANAGER') loadStats();
+    })
+    .withFailureHandler(function(){document.getElementById('userEmail').textContent='session error';})
+    .getEffectiveUser();
+}
+
+function onInput(el){
+  var n=el.value.length;
+  var cc=document.getElementById('charCount');
+  cc.textContent=n+' / 500';
+  cc.classList.toggle('warn',n>420);
+  document.getElementById('submitBtn').disabled=(n<3||_busy);
+}
+
+function ask(q){
+  document.getElementById('queryInput').value=q;
+  onInput(document.getElementById('queryInput'));
+  doSubmit();
+}
+
+function doSubmit(){
+  var q=document.getElementById('queryInput').value.trim();
+  if(!q||q.length<3||_busy) return;
+  if(Date.now()-_lastT<1200) return;
+  _lastT=Date.now();
+  setLoad(true);
+  resetResult();
+  document.getElementById('emptyState').style.display='none';
+  google.script.run
+    .withSuccessHandler(showResult)
+    .withFailureHandler(function(e){setLoad(false);showErr('Server error: '+(e.message||'unknown'));})
+    .askWmsAI(q);
+}
+
+function showResult(r){
+  setLoad(false);
+  if(!r){showErr('No response.');return;}
+  var re=document.getElementById('result');
+  re.classList.add('active');
+  var tag=document.getElementById('statusTag');
+  if(!r.ok&&r.flagged){tag.className='mtag tag-blocked';tag.textContent='BLOCKED';}
+  else if(!r.ok){tag.className='mtag tag-err';tag.textContent='ERROR';}
+  else if(r.resultCount===0){tag.className='mtag tag-none';tag.textContent='NO MATCH';}
+  else{tag.className='mtag tag-ok';tag.textContent='FOUND';}
+  document.getElementById('countLabel').textContent=r.resultCount>0?r.resultCount+' source(s)':'';
+  if(r.flagged&&r.flagReason){
+    document.getElementById('cautionBanner').classList.add('active');
+    document.getElementById('cautionText').textContent='Query flagged ('+r.flagReason+'). Contact supervisor if needed.';
+  }
+  var chips=document.getElementById('chips');
+  chips.innerHTML='';
+  (r.sources||[]).forEach(function(s){
+    var c=document.createElement('span');c.className='chip';c.textContent=s;chips.appendChild(c);
+  });
+  var box=document.getElementById('answerBox');
+  box.className='answer-box';
+  if(!r.ok) box.classList.add('blocked');
+  else if(r.flagged) box.classList.add('flagged');
+  box.textContent=r.answer||'—';
+  if(r.ok&&r.resultCount>0) document.getElementById('feedbackRow').classList.add('active');
+  addHist(document.getElementById('queryInput').value.trim());
+}
+
+function showErr(msg){
+  resetResult();
+  document.getElementById('result').classList.add('active');
+  var t=document.getElementById('statusTag');t.className='mtag tag-err';t.textContent='ERROR';
+  var b=document.getElementById('answerBox');b.className='answer-box blocked';b.textContent=msg;
+}
+
+function resetResult(){
+  document.getElementById('result').classList.remove('active');
+  document.getElementById('cautionBanner').classList.remove('active');
+  document.getElementById('feedbackRow').classList.remove('active');
+  document.getElementById('fbThanks').style.display='none';
+  document.getElementById('fbUp').classList.remove('selected');
+  document.getElementById('fbDown').classList.remove('selected');
+  document.getElementById('chips').innerHTML='';
+  document.getElementById('countLabel').textContent='';
+}
+
+function setLoad(on){
+  _busy=on;
+  document.getElementById('loading').classList.toggle('active',on);
+  document.getElementById('submitBtn').disabled=on;
+}
+
+function fb(pos){
+  document.getElementById('fbUp').classList.toggle('selected',pos);
+  document.getElementById('fbDown').classList.toggle('selected',!pos);
+  document.getElementById('fbThanks').style.display='inline';
+}
+
+function addHist(q){
+  if(!q) return;
+  _hist=_hist.filter(function(x){return x!==q;});
+  _hist.unshift(q);
+  if(_hist.length>8) _hist.pop();
+  var list=document.getElementById('histList');
+  list.innerHTML='';
+  _hist.forEach(function(item){
+    var d=document.createElement('div');
+    d.className='hist-item';d.title=item;
+    d.textContent=item.length>48?item.substring(0,48)+'…':item;
+    d.onclick=function(){
+      document.getElementById('queryInput').value=item;
+      onInput(document.getElementById('queryInput'));
+    };
+    list.appendChild(d);
+  });
+}
+
+function loadStats(){
+  google.script.run
+    .withSuccessHandler(function(s){
+      if(!s||s.total===0) return;
+      document.getElementById('statsSection').style.display='block';
+      document.getElementById('statsDivider').style.display='block';
+      document.getElementById('statsGrid').innerHTML=
+        mkStat(s.total,'Total Queries')+mkStat(s.users,'Unique Users')+
+        mkStat(s.avgMs+'ms','Avg Speed')+mkStat(s.flagged,'Flagged');
+    })
+    .withFailureHandler(function(){})
+    .getAiQueryStats();
+}
+function mkStat(n,l){return '<div class="stat"><div class="stat-n">'+n+'</div><div class="stat-l">'+l+'</div></div>';}
+
+function navTo(form){
+  google.script.run
+    .withSuccessHandler(function(url){window.top.location.href=url+'?form='+form;})
+    .getScriptUrl();
+}
+  </script>
+</body>
+
+</html>

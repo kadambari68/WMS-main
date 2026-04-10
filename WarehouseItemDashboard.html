@@ -1,0 +1,624 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <base target="_top">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Warehouse Item Dashboard</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Segoe UI', Tahoma, sans-serif;
+      background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+      padding: 20px;
+      min-height: 100vh;
+    }
+
+    .header {
+      background: linear-gradient(135deg, #4D2FB2, #1a1a2e);
+      color: #fff;
+      padding: 30px;
+      border-radius: 12px;
+      margin-bottom: 25px;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.18);
+    }
+
+    .header h1 {
+      font-size: 32px;
+      margin-bottom: 8px;
+    }
+
+    .header p {
+      opacity: 0.9;
+      font-size: 16px;
+    }
+
+    /* ── Controls row ── */
+    .controls {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 16px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .btn {
+      background: #4D2FB2;
+      color: #fff;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 600;
+      transition: all 0.2s;
+      text-decoration: none;
+      white-space: nowrap;
+    }
+
+    .btn:hover {
+      background: #1a1a2e;
+      transform: translateY(-2px);
+    }
+
+    /* ── Search bar ── */
+    .search-wrap {
+      flex: 1;
+      min-width: 200px;
+      max-width: 400px;
+      position: relative;
+    }
+
+    .search-wrap svg {
+      position: absolute;
+      left: 12px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: #aaa;
+      pointer-events: none;
+    }
+
+    #searchInput {
+      width: 100%;
+      padding: 11px 12px 11px 38px;
+      border: 2px solid #e0e0e0;
+      border-radius: 8px;
+      font-size: 14px;
+      font-family: inherit;
+      background: #fff;
+      transition: border-color 0.2s;
+      outline: none;
+    }
+
+    #searchInput:focus {
+      border-color: #667eea;
+    }
+
+    #searchInput::placeholder {
+      color: #bbb;
+    }
+
+    /* ── Result count ── */
+    .result-meta {
+      font-size: 13px;
+      color: #666;
+      margin-bottom: 16px;
+      min-height: 20px;
+    }
+
+    .result-meta strong {
+      color: #333;
+    }
+
+    /* ── Cards ── */
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 25px;
+    }
+
+    details.item-card,
+    details.version-card {
+      background: white;
+      border-radius: 12px;
+      padding: 16px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+    }
+
+    details.item-card summary,
+    details.version-card summary {
+      font-weight: 700;
+      cursor: pointer;
+      list-style: none;
+    }
+
+    details.item-card summary::-webkit-details-marker,
+    details.version-card summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .summary-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+    }
+
+    /* ── Highlight matched text ── */
+    .item-card.match-highlight {
+      border: 2px solid #667eea;
+    }
+
+    mark {
+      background: #e8ecff;
+      color: #3730a3;
+      border-radius: 2px;
+      padding: 0 1px;
+    }
+
+    .pill {
+      background: #f8f9fa;
+      border-radius: 6px;
+      padding: 4px 10px;
+      font-size: 12px;
+      font-weight: 600;
+      color: #333;
+      flex-shrink: 0;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 4px 8px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 700;
+      color: #fff;
+      margin-right: 6px;
+      margin-top: 6px;
+    }
+
+    .badge.approved {
+      background: #10B981;
+    }
+
+    .badge.pending {
+      background: #F59E0B;
+    }
+
+    .badge.rejected {
+      background: #EF4444;
+    }
+
+    .badge.overridden {
+      background: #6366F1;
+    }
+
+    .badge.closed {
+      background: #6B7280;
+    }
+
+    .bins {
+      margin-top: 12px;
+      display: grid;
+      gap: 8px;
+    }
+
+    .bin-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 8px 10px;
+      background: #f8f9fa;
+      border-radius: 6px;
+      font-size: 13px;
+    }
+
+    .loading {
+      text-align: center;
+      padding: 60px;
+      color: #999;
+      grid-column: 1 / -1;
+    }
+
+    .no-results {
+      text-align: center;
+      padding: 60px;
+      color: #aaa;
+      grid-column: 1 / -1;
+      font-size: 15px;
+    }
+
+    .no-results span {
+      display: block;
+      font-size: 36px;
+      margin-bottom: 12px;
+    }
+
+    .dead-stock-card {
+      border: 2px solid #ef4444;
+      background: #fff7f7;
+    }
+
+    .dead-stock-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 8px 10px;
+      background: #ffe4e6;
+      border-radius: 6px;
+      font-size: 12px;
+      margin-top: 6px;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="header">
+    <h1>Warehouse Item Dashboard</h1>
+    <p>Read-only stock view by item, version, and bin</p>
+  </div>
+
+  <!-- Controls: Refresh + Dashboard only. Search bar takes remaining space. -->
+  <div class="controls">
+    <button class="btn" onclick="loadDashboard()">↻ Refresh</button>
+    <button class="btn" onclick="navForm('dashboard')">← Dashboard</button>
+    <div class="search-wrap">
+      <!-- Search icon -->
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="11" cy="11" r="8" />
+        <line x1="21" y1="21" x2="16.65" y2="16.65" />
+      </svg>
+      <input type="text" id="searchInput" placeholder="Search by item code…" oninput="handleSearch(this.value)"
+        autocomplete="off" spellcheck="false">
+    </div>
+  </div>
+
+  <!-- Result count line -->
+  <div class="result-meta" id="resultMeta"></div>
+
+  <div id="grid" class="grid">
+    <div class="loading">Loading item dashboard…</div>
+  </div>
+
+  <script>
+    let screenToken = 0;
+    let navInProgress = false;
+    let allItems = [];   // full dataset — kept in memory after load
+    let searchTimer = null; // debounce handle
+    let initialItemFilter = '';
+
+    window.onload = function () {
+      mountScreen();
+    };
+
+    window.onbeforeunload = function () {
+      destroyScreen();
+    };
+
+    function mountScreen() {
+      screenToken++;
+      try {
+        const params = new URLSearchParams(window.location.search || '');
+        initialItemFilter = String(params.get('item') || '').trim();
+      } catch (e) {
+        initialItemFilter = '';
+      }
+      loadDashboard(screenToken);
+    }
+
+    // ── Load from backend ────────────────────────────────────────────
+    function loadDashboard(token) {
+      const effectiveToken = token || screenToken;
+      const grid = document.getElementById('grid');
+      grid.innerHTML = '<div class="loading">Loading item dashboard…</div>';
+      document.getElementById('resultMeta').textContent = '';
+
+      google.script.run
+        .withSuccessHandler(function (payload) {
+          if (effectiveToken !== screenToken) return;
+          allItems = Array.isArray(payload) ? payload : ((payload && payload.items) || []);
+          const preset = String(initialItemFilter || '').trim();
+          if (!Array.isArray(allItems)) allItems = [];
+          if (allItems.length === 0) {
+            loadInventoryReadViewFallback(effectiveToken, preset);
+            initialItemFilter = '';
+            return;
+          }
+          document.getElementById('searchInput').value = preset;
+          applyFilter(preset);
+          initialItemFilter = '';
+        })
+        .withFailureHandler(function (err) {
+          if (effectiveToken !== screenToken) return;
+          grid.innerHTML = '<div class="loading" style="color:#dc3545;">Error loading data. Please refresh.</div>';
+          console.error(err);
+        })
+        .getWarehouseItemDashboardData();
+    }
+
+    function loadInventoryReadViewFallback(effectiveToken, preset) {
+      google.script.run
+        .withSuccessHandler(function (rows) {
+          if (effectiveToken !== screenToken) return;
+          const built = buildItemsFromInventoryRows(rows);
+          if (Array.isArray(built) && built.length > 0) {
+            allItems = built;
+            console.info('Warehouse dashboard fallback loaded from inventory read view:', built.length, 'item(s).');
+          }
+          document.getElementById('searchInput').value = String(preset || '');
+          applyFilter(preset);
+        })
+        .withFailureHandler(function (err) {
+          if (effectiveToken !== screenToken) return;
+          console.error('Inventory read-view fallback failed:', err);
+          document.getElementById('searchInput').value = String(preset || '');
+          applyFilter(preset);
+        })
+        .getInventoryReadView({});
+    }
+
+    function buildItemsFromInventoryRows(rows) {
+      const list = Array.isArray(rows) ? rows : [];
+      const byItem = {};
+
+      list.forEach(function (r) {
+        const qty = Number(r && r.quantity) || 0;
+        if (qty <= 0) return;
+
+        const itemCode = String((r && r.itemCode) || '').trim();
+        if (!itemCode) return;
+        const version = String((r && r.version) || '').trim().toUpperCase() || 'UNSPECIFIED';
+        const binId = String((r && r.binId) || '').trim() || 'UNKNOWN';
+        const uom = String((r && r.uom) || 'KG').trim().toUpperCase() || 'KG';
+        const qa = String((r && r.qualityStatus) || 'PENDING').trim().toUpperCase() || 'PENDING';
+
+        if (!byItem[itemCode]) {
+          byItem[itemCode] = {
+            itemCode: itemCode,
+            uomCode: uom,
+            totalQty: 0,
+            qaSummary: { approved: 0, pending: 0, rejected: 0, hold: 0, overridden: 0, closed: 0 },
+            versions: {}
+          };
+        }
+
+        const item = byItem[itemCode];
+        item.totalQty += qty;
+        if (!item.uomCode && uom) item.uomCode = uom;
+
+        if (qa === 'APPROVED') item.qaSummary.approved += qty;
+        else if (qa === 'HOLD') item.qaSummary.hold += qty;
+        else if (qa === 'REJECTED') item.qaSummary.rejected += qty;
+        else if (qa === 'OVERRIDDEN') item.qaSummary.overridden += qty;
+        else if (qa === 'CLOSED') item.qaSummary.closed += qty;
+        else item.qaSummary.pending += qty;
+
+        if (!item.versions[version]) item.versions[version] = {};
+        if (!item.versions[version][binId]) {
+          item.versions[version][binId] = {
+            binId: binId,
+            binCode: binId,
+            site: String((r && r.site) || '').trim(),
+            location: String((r && r.location) || '').trim(),
+            rackCode: '',
+            quantity: 0,
+            inwardDate: String((r && r.inwardDate) || '').trim(),
+            lastTransferDate: String((r && r.lastTransferDate) || '').trim()
+          };
+        }
+
+        const bin = item.versions[version][binId];
+        bin.quantity += qty;
+        if (!bin.inwardDate && r && r.inwardDate) bin.inwardDate = String(r.inwardDate);
+        if (r && r.lastTransferDate) bin.lastTransferDate = String(r.lastTransferDate);
+      });
+
+      return Object.keys(byItem).sort().map(function (itemCode) {
+        const item = byItem[itemCode];
+        const versions = Object.keys(item.versions).sort().map(function (version) {
+          const bins = Object.keys(item.versions[version]).sort().map(function (binId) {
+            return item.versions[version][binId];
+          });
+          const totalQty = bins.reduce(function (acc, b) { return acc + (Number(b.quantity) || 0); }, 0);
+          return {
+            version: version,
+            totalQty: totalQty,
+            bins: bins
+          };
+        });
+        return {
+          itemCode: item.itemCode,
+          uomCode: item.uomCode || 'KG',
+          totalQty: item.totalQty || 0,
+          qaSummary: item.qaSummary,
+          versions: versions
+        };
+      });
+    }
+
+    // ── Search / filter ──────────────────────────────────────────────
+    function handleSearch(value) {
+      // Debounce: wait 200ms after last keystroke before filtering
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(function () {
+        applyFilter(value);
+      }, 200);
+    }
+
+    function applyFilter(query) {
+      const q = String(query || '').trim().toUpperCase();
+
+      let filtered;
+      if (!q) {
+        filtered = allItems;
+      } else {
+        filtered = allItems.filter(function (item) {
+          return String(item.itemCode || '').toUpperCase().indexOf(q) !== -1;
+        });
+      }
+
+      // Update result count
+      const meta = document.getElementById('resultMeta');
+      if (q) {
+        meta.innerHTML = 'Showing <strong>' + filtered.length + '</strong> of <strong>' + allItems.length + '</strong> items for "<strong>' + escHtml(query.trim()) + '</strong>"';
+      } else if (allItems.length > 0) {
+        meta.innerHTML = '<strong>' + allItems.length + '</strong> item(s) in stock';
+      } else {
+        meta.innerHTML = '';
+      }
+
+      renderDashboard(filtered, q);
+    }
+
+    // ── Render ───────────────────────────────────────────────────────
+    function renderDashboard(items, highlightQuery) {
+      const grid = document.getElementById('grid');
+      grid.innerHTML = '';
+
+      if (!items || items.length === 0) {
+        if (allItems.length === 0) {
+          grid.innerHTML = '<div class="loading">No data found.</div>';
+        } else {
+          grid.innerHTML =
+            '<div class="no-results">' +
+            '<span>🔍</span>' +
+            'No items match "<strong>' + escHtml(highlightQuery || '') + '</strong>".' +
+            '</div>';
+        }
+        return;
+      }
+
+      const q = String(highlightQuery || '').toUpperCase();
+
+      items.forEach(function (item) {
+        let total = 0;
+        (item.versions || []).forEach(function (v) { total += Number(v.totalQty || 0); });
+        const qa = item.qaSummary || {};
+        const uom = String(item.uomCode || '').trim() || '-';
+
+        const card = document.createElement('details');
+        card.className = 'item-card';
+        if (q) card.classList.add('match-highlight');
+        // Auto-open when there is an active search (helps quick scanning)
+        if (q) card.setAttribute('open', '');
+
+        // Highlight matching characters in item code
+        const labelHtml = q
+          ? highlightText(item.itemCode, q)
+          : escHtml(item.itemCode);
+
+        card.innerHTML =
+          '<summary class="summary-row">' +
+          '<span>' + labelHtml + '</span>' +
+          '<span class="pill">' + total.toFixed(2) + ' ' + escHtml(uom) + '</span>' +
+          '</summary>';
+
+        const versionsWrap = document.createElement('div');
+        versionsWrap.style.marginTop = '12px';
+
+        const qaWrap = document.createElement('div');
+        qaWrap.innerHTML =
+          '<span class="badge approved">Approved ' + Number(qa.approved || 0).toFixed(2) + ' ' + escHtml(uom) + '</span>' +
+          '<span class="badge pending">Pending ' + Number(qa.pending || 0).toFixed(2) + ' ' + escHtml(uom) + '</span>' +
+          '<span class="badge rejected">Hold ' + Number(qa.hold || 0).toFixed(2) + ' ' + escHtml(uom) + '</span>' +
+          '<span class="badge overridden">Overridden ' + Number(qa.overridden || 0).toFixed(2) + ' ' + escHtml(uom) + '</span>' +
+          '<span class="badge closed">Closed ' + Number(qa.closed || 0).toFixed(2) + ' ' + escHtml(uom) + '</span>';
+        versionsWrap.appendChild(qaWrap);
+
+        (item.versions || []).forEach(function (v) {
+          const versionLabel = (v.version && String(v.version).toUpperCase() !== 'UNSPECIFIED')
+            ? 'Version ' + v.version
+            : 'Version (Unspecified)';
+
+          const vCard = document.createElement('details');
+          vCard.className = 'version-card';
+          vCard.style.marginTop = '8px';
+          if (q) vCard.setAttribute('open', '');
+          vCard.innerHTML =
+            '<summary class="summary-row">' +
+            '<span>' + escHtml(versionLabel) + '</span>' +
+            '<span class="pill">' + Number(v.totalQty || 0).toFixed(2) + ' ' + escHtml(uom) + '</span>' +
+            '</summary>';
+
+          const bins = document.createElement('div');
+          bins.className = 'bins';
+
+          (v.bins || []).forEach(function (b) {
+            const inwardTxt = b.inwardDate ? ('IN ' + b.inwardDate) : 'IN -';
+            const transferTxt = b.lastTransferDate ? ('TR ' + b.lastTransferDate) : 'TR -';
+            const row = document.createElement('div');
+            row.className = 'bin-row';
+            row.innerHTML =
+              '<span>' +
+              escHtml((b.binCode || b.binId) + ' | ' + b.site + ' ' + b.location + (b.rackCode ? ' - ' + b.rackCode : '')) +
+              '<br><small>' + escHtml(inwardTxt + ' | ' + transferTxt) + '</small>' +
+              '</span>' +
+              '<strong>' + Number(b.quantity || 0).toFixed(2) + ' ' + escHtml(uom) + '</strong>';
+            row.title = 'Bin: ' + (b.binCode || b.binId) +
+              '\nSite: ' + (b.site || '-') +
+              '\nLocation: ' + (b.location || '-') +
+              '\nRack: ' + (b.rackCode || '-') +
+              '\nInward Date: ' + (b.inwardDate || '-') +
+              '\nLast Transfer Date: ' + (b.lastTransferDate || '-');
+            bins.appendChild(row);
+          });
+
+          if (!v.bins || v.bins.length === 0) {
+            const empty = document.createElement('div');
+            empty.className = 'bin-row';
+            empty.innerHTML = '<span>No bins</span><strong>0.00 ' + escHtml(uom) + '</strong>';
+            bins.appendChild(empty);
+          }
+
+          vCard.appendChild(bins);
+          versionsWrap.appendChild(vCard);
+        });
+
+        card.appendChild(versionsWrap);
+        grid.appendChild(card);
+      });
+    }
+
+    // ── Utilities ────────────────────────────────────────────────────
+    function escHtml(str) {
+      return String(str || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    function highlightText(text, query) {
+      // Safe: escape text first, then wrap matches with <mark>
+      const safe = escHtml(String(text || ''));
+      const safeQ = escHtml(query);
+      if (!safeQ) return safe;
+      // Case-insensitive replace
+      const re = new RegExp('(' + safeQ.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'gi');
+      return safe.replace(re, '<mark>$1</mark>');
+    }
+
+    // ── Navigation ───────────────────────────────────────────────────
+    function navForm(formName) {
+      if (navInProgress) return;
+      navInProgress = true;
+      destroyScreen();
+      google.script.run.withSuccessHandler(function (url) {
+        window.top.location.href = url + '?form=' + formName;
+      }).getScriptUrl();
+    }
+
+    function destroyScreen() {
+      screenToken++;
+      allItems = [];
+      const grid = document.getElementById('grid');
+      if (grid) grid.innerHTML = '';
+    }
+  </script>
+</body>
+
+</html>

@@ -1,0 +1,1459 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <base target="_top">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Inward | WMS</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+  <style>
+  :root {
+    --primary-msg: #4F46E5;
+    --bg-color: #F3F4F6;
+    --card-bg: #FFFFFF;
+  }
+
+  body {
+    background-color: var(--bg-color);
+    font-family: 'Inter', sans-serif;
+    padding-bottom: 40px;
+  }
+
+  .main-card {
+    max-width: 800px;
+    margin: 20px auto;
+    border: none;
+    border-radius: 16px;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+    background: var(--card-bg);
+    overflow: hidden;
+  }
+
+  .card-header {
+    background: #FFFFFF;
+    border-bottom: 1px solid #E5E7EB;
+    padding: 20px 24px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .header-title {
+    font-weight: 700;
+    font-size: 1.25rem;
+    color: #111827;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .card-body {
+    padding: 24px;
+  }
+
+  .form-label {
+    font-weight: 500;
+    font-size: 0.875rem;
+    color: #374151;
+    margin-bottom: 6px;
+  }
+
+  .form-control,
+  .form-select {
+    border-radius: 8px;
+    border: 1px solid #D1D5DB;
+    padding: 10px 12px;
+    font-size: 0.95rem;
+  }
+
+  .form-control:focus,
+  .form-select:focus {
+    border-color: var(--primary-msg);
+    box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
+  }
+
+  .btn-primary {
+    background: var(--primary-msg);
+    border: none;
+    border-radius: 10px;
+    padding: 12px 20px;
+    font-weight: 600;
+    width: 100%;
+  }
+
+  .btn-primary:hover {
+    background: #4338CA;
+  }
+
+  .btn-outline-secondary {
+    border-radius: 10px;
+  }
+
+  .type-selector {
+    background: #F9FAFB;
+    padding: 4px;
+    border-radius: 10px;
+    display: flex;
+    gap: 4px;
+    margin-bottom: 24px;
+    border: 1px solid #E5E7EB;
+  }
+
+  .type-option {
+    flex: 1;
+    text-align: center;
+    padding: 10px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: 500;
+    font-size: 0.9rem;
+    color: #6B7280;
+    transition: all 0.2s;
+  }
+
+  .type-option.active {
+    background: #FFFFFF;
+    color: var(--primary-msg);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+    font-weight: 600;
+  }
+
+  .item-row {
+    background: #F9FAFB;
+    border: 1px solid #E5E7EB;
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 16px;
+    position: relative;
+  }
+
+  .remove-row-btn {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    color: #9CA3AF;
+    background: none;
+    border: none;
+  }
+
+  .remove-row-btn:hover {
+    color: #EF4444;
+  }
+
+  .version-wrapper {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-top:10px;
+  }
+
+  .version-label {
+    font-size: 0.65rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.9px;
+    color: #9CA3AF;
+    margin: 0;
+    display: block;
+  }
+
+  .version-input {
+    border-radius: 8px !important;
+    font-size: 0.8rem !important;
+    text-align: center;
+    color: var(--primary-msg);
+    font-weight: 600;
+    background: #EEF2FF;
+    border: 1px solid #C7D2FE !important;
+    padding: 7px 6px !important;
+    height: 39px !important;
+    width: 100%;
+  }
+
+  .version-input:focus {
+    background: #FFFFFF;
+    border-color: var(--primary-msg) !important;
+    box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1) !important;
+  }
+
+  .version-input::placeholder {
+    color: #A5B4FC;
+    font-style: italic;
+    font-size: 0.75rem;
+  }
+
+  /* â”€â”€ Auto-filled state: green tint, lock icon shows it was looked up â”€â”€ */
+  .version-input.auto-filled {
+    background: #ECFDF5;
+    border-color: #6EE7B7 !important;
+    color: #065F46;
+  }
+
+  /* â”€â”€ Loading state on version field â”€â”€ */
+  .version-input.loading-version {
+    background: #F3F4F6;
+    color: #9CA3AF;
+    border-color: #D1D5DB !important;
+    font-style: italic;
+  }
+
+  /* â”€â”€ Small badge that appears under the version field â”€â”€ */
+  .version-hint {
+    font-size: 0.6rem;
+    margin: 0;
+    min-height: 0;
+    line-height: 1.25;
+    white-space: normal;
+    display: none;
+  }
+
+  .version-hint.found {
+    color: #059669;
+    display: block;
+  }
+
+  .version-hint.new {
+    color: #6366F1;
+    display: block;
+  }
+
+  .qty-group .uom-select {
+    max-width: 86px !important;
+    min-width: 78px;
+    font-size: 0.78rem;
+    padding-left: 8px;
+    padding-right: 22px;
+  }
+
+  .qty-group .qty-input {
+    min-width: 0;
+  }
+
+  /* -- Version shelf banner: full-width card shown below item row */
+  .version-shelf-banner {
+    display: none;
+    width: 100%;
+    margin-top: 8px;
+    background: #FFF7ED;
+    border: 1px solid #FED7AA;
+    border-radius: 8px;
+    padding: 9px 12px;
+    font-size: 0.78rem;
+    color: #92400E;
+    line-height: 1.5;
+  }
+  .version-shelf-banner.visible { display: block; }
+  .version-shelf-banner .vb-head { font-weight: 600; margin-bottom: 4px; }
+  .version-shelf-banner .vb-bins { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; }
+  .version-shelf-banner .vb-chip {
+    background: #FFFBEB; border: 1px solid #FCD34D;
+    border-radius: 4px; padding: 1px 7px; font-size: 0.72rem; white-space: nowrap;
+  }
+  .version-shelf-banner .vb-chip.v-label {
+    background: #FEF3C7; border-color: #F59E0B; font-weight: 700; color: #78350F;
+  }
+  /* UOM badge next to quantity input */
+  .uom-badge {
+    display: inline-block; font-size: 0.7rem; font-weight: 700; color: #6366F1;
+    background: #EEF2FF; border: 1px solid #C7D2FE; border-radius: 4px;
+    padding: 1px 6px; margin-top: 4px; margin-left: 2px;
+  }
+
+  .split-bin-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 10px;
+  }
+
+  .split-help {
+    font-size: 0.78rem;
+    color: #6B7280;
+  }
+
+  .bin-splits-container {
+    margin-top: 10px;
+    border: 1px solid #E5E7EB;
+    border-radius: 10px;
+    background: #FFFFFF;
+    padding: 10px;
+  }
+
+  .split-table {
+    margin-bottom: 8px;
+  }
+
+  .split-table thead th {
+    font-size: 0.75rem;
+    color: #6B7280;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+  }
+
+  .split-drag {
+    cursor: move;
+    color: #9CA3AF;
+    font-size: 0.9rem;
+    text-align: center;
+  }
+
+  .split-actions {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+
+  .split-summary {
+    font-size: 0.8rem;
+  }
+
+  .split-warning {
+    color: #DC2626;
+    font-weight: 600;
+    margin-left: 6px;
+  }
+
+  .capacity-wrap {
+    min-width: 190px;
+  }
+
+  .capacity-track {
+    width: 100%;
+    height: 8px;
+    background: #E5E7EB;
+    border-radius: 999px;
+    overflow: hidden;
+    margin-bottom: 3px;
+  }
+
+  .capacity-fill {
+    height: 100%;
+    width: 0%;
+    transition: width 0.2s ease;
+  }
+
+  .capacity-fill.ok {
+    background: #10B981;
+  }
+
+  .capacity-fill.warn {
+    background: #F59E0B;
+  }
+
+  .capacity-fill.danger {
+    background: #DC2626;
+  }
+
+  .capacity-text {
+    display: block;
+    font-size: 0.72rem;
+    color: #6B7280;
+  }
+
+  /* â”€â”€ Mobile Responsiveness â”€â”€ */
+  @media (max-width: 768px) {
+    .item-row {
+      padding: 12px;
+    }
+
+    .form-label {
+      font-size: 0.8rem;
+      margin-bottom: 4px;
+    }
+
+    .version-label {
+      font-size: 0.6rem;
+    }
+
+    .version-input {
+      font-size: 0.75rem !important;
+      padding: 6px 4px !important;
+      height: 36px !important;
+    }
+
+    .remove-row-btn {
+      top: 6px;
+      right: 6px;
+      font-size: 0.9rem;
+    }
+
+    .split-bin-toolbar {
+      flex-direction: column;
+      align-items: flex-start;
+    }
+
+    .capacity-wrap {
+      min-width: 130px;
+    }
+  }
+</style>
+</head>
+
+<body>
+
+  <div class="container">
+    <div class="main-card">
+      <div class="card-header">
+        <div class="header-title">
+          <i class="fa-solid fa-boxes-packing text-primary"></i>
+          Inward Receipt
+        </div>
+        <button class="btn btn-sm btn-outline-secondary" onclick="goBack()">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+
+      <div class="card-body">
+        <form id="inwardForm" onsubmit="handleFormSubmit(event)">
+
+          <div class="type-selector">
+            <div class="type-option active" id="optPurchase" onclick="setType('PURCHASE')">
+              <i class="fa-solid fa-cart-shopping me-2"></i>Purchase
+            </div>
+            <div class="type-option" id="optReturn" onclick="setType('RETURN')">
+              <i class="fa-solid fa-rotate-left me-2"></i>Prod. Return
+            </div>
+            <input type="hidden" name="receiptType" id="receiptType" value="PURCHASE">
+          </div>
+
+          <!-- Header Details -->
+          <div class="row g-3 mb-4">
+            <div class="col-md-6">
+              <label class="form-label" id="refLabel">Bill Number</label>
+              <input type="text" class="form-control" id="ginNo" required placeholder="e.g. 2024-001">
+            </div>
+            <div class="col-md-6 d-none" id="prodOrderField">
+              <label class="form-label">Production Order Ref</label>
+              <input type="text" class="form-control" id="prodOrderNo" placeholder="PO Number">
+            </div>
+          </div>
+          <div class="row g-3 mb-4 d-none" id="deadStockSection">
+            <div class="col-md-4">
+              <div class="form-check mt-4">
+                <input class="form-check-input" type="checkbox" id="isDeadStockReturn" onchange="toggleDeadStockMode()">
+                <label class="form-check-label" for="isDeadStockReturn">
+                  Mark Return As Dead Stock
+                </label>
+              </div>
+            </div>
+            <div class="col-md-8">
+              <label class="form-label">Dead Stock Reason</label>
+              <input type="text" class="form-control" id="deadStockReason" placeholder="Required when dead stock is selected" disabled>
+            </div>
+          </div>
+
+          <!-- Items -->
+          <h6 class="text-uppercase text-muted fw-bold small mb-3">Items</h6>
+          <div id="itemsContainer"></div>
+
+          <button type="button" class="btn btn-outline-secondary w-100 mb-4 dashed-border" onclick="addItemRow()">
+            <i class="fa-solid fa-plus me-2"></i>Add Item
+          </button>
+
+          <div class="mb-4">
+            <label class="form-label">Remarks</label>
+            <textarea class="form-control" id="remarks" rows="2" placeholder="Optional notes..."></textarea>
+          </div>
+
+          <button type="submit" class="btn btn-primary" id="submitBtn">
+            Confirm Receipt
+          </button>
+
+          <div id="loading" class="text-center mt-3 d-none">
+            <div class="spinner-border text-primary spinner-border-sm" role="status"></div>
+            <span class="ms-2 text-muted small">Processing...</span>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+ <template id="itemRowTemplate">
+  <div class="item-row">
+    <button type="button" class="remove-row-btn" onclick="removeRow(this)">
+      <i class="fa-solid fa-trash-can"></i>
+    </button>
+
+    <!-- Row 1: Main Item Details -->
+    <div class="row g-2 mb-2">
+      <div class="col-md-3">
+        <label class="form-label">Item Code</label>
+        <input type="text" class="form-control item-input" placeholder="Scan or Type" required autocomplete="off">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label">Batch No</label>
+        <input type="text" class="form-control batch-input" placeholder="Batch" required>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label">Lot No</label>
+        <input type="text" class="form-control lot-input" placeholder="Lot">
+      </div>
+      <div class="col-md-3">
+        <label class="form-label qty-label">Quantity</label>
+        <div class="input-group qty-group">
+          <input type="number" class="form-control qty-input" step="0.01" min="0.01" placeholder="Qty" required>
+          <select class="form-select uom-select">
+            <option value="KG">KG</option>
+          </select>
+        </div>
+      </div>
+      <div class="col-md-2">
+        <div class="version-wrapper">
+          <label class="version-label">Version</label>
+          <input
+            type="text"
+            class="form-control version-input"
+            placeholder="..."
+            maxlength="10"
+            title="Auto-filled from inventory history. Edit if needed."
+          >
+          <span class="version-hint"></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Row 2: Storage & Expiry Details -->
+    <div class="row g-2">
+      <div class="col-md-3">
+        <label class="form-label">Site</label>
+        <select class="form-select site-select" onchange="loadLocationsForRow(this)" required>
+          <option value="">Select Site...</option>
+          <option value="Unit 1">Unit 1</option>
+          <option value="Unit 2">Unit 2</option>
+          <option value="Unit 3">Unit 3</option>
+          <option value="Warehouse">Warehouse</option>
+        </select>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Location</label>
+        <select class="form-select location-select" onchange="filterBinsForRow(this)" required disabled>
+          <option value="">Select Location...</option>
+        </select>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Bin</label>
+        <select class="form-select bin-select" required disabled>
+          <option value="">Select Bin...</option>
+        </select>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Expiry Date</label>
+        <input type="text" class="form-control expiry-input" placeholder="YYYY-MM-DD">
+      </div>
+    </div>
+    <div class="split-bin-toolbar">
+      <button type="button" class="btn btn-sm btn-outline-secondary split-bin-btn">
+        + Split Bins
+      </button>
+      <span class="split-help">Optional: allocate this line quantity across multiple bins.</span>
+    </div>
+    <div class="bin-splits-container" style="display: none;">
+      <table class="table table-sm split-table">
+        <thead>
+          <tr>
+            <th style="width: 28px;"></th>
+            <th>Bin</th>
+            <th style="width: 130px;">Qty</th>
+            <th>Capacity</th>
+            <th style="width: 44px;"></th>
+          </tr>
+        </thead>
+        <tbody class="bin-splits-tbody">
+          <!-- split rows -->
+        </tbody>
+      </table>
+      <div class="split-actions">
+        <button type="button" class="btn btn-sm btn-success add-split-row">
+          + Add Bin Split
+        </button>
+        <small class="form-text text-muted split-summary">
+          Total: <span class="split-total">0</span> /
+          <span class="item-total-qty">0</span>
+          <span class="split-warning" style="display: none;">
+            Totals do not match.
+          </span>
+        </small>
+      </div>
+    </div>
+    <!-- Full-width version warning banner (shown when receiving V2+) -->
+    <div class="version-shelf-banner"></div>
+  </div>
+</template>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.3/Sortable.min.js"></script>
+  <script>
+    let itemCount = 0;
+    let binsData = [];
+    let locationsMasterData = [];
+    let allActiveUoms = ['KG'];
+    let navInProgress = false;
+
+    // Initialize
+    document.addEventListener('DOMContentLoaded', function () {
+      loadInitialData();
+    });
+
+    function loadInitialData() {
+      google.script.run.withSuccessHandler(function (bins) {
+        binsData = bins || [];
+        document.querySelectorAll('.item-row').forEach(function (row) {
+          updateSplitBinOptions(row);
+        });
+        maybeAddFirstRow();
+      }).getBins();
+
+      google.script.run.withSuccessHandler(function (locs) {
+        locationsMasterData = locs || [];
+        maybeAddFirstRow();
+      }).getLocationsFromMaster();
+
+      google.script.run.withSuccessHandler(function (uomInfo) {
+        const opts = _extractAllUoms(uomInfo);
+        allActiveUoms = opts.length ? opts : ['KG'];
+        applyGlobalUomOptionsToRows();
+      }).withFailureHandler(function () {
+        // Keep default fallback list.
+      }).getItemUomForForm('');
+    }
+
+    function maybeAddFirstRow() {
+      if (binsData.length > 0 && locationsMasterData.length > 0 && itemCount === 0) {
+        addItemRow();
+      }
+    }
+
+    function _extractAllUoms(uomInfo) {
+      const list = (uomInfo && Array.isArray(uomInfo.allUomOptions) && uomInfo.allUomOptions.length)
+        ? uomInfo.allUomOptions
+        : ((uomInfo && Array.isArray(uomInfo.uomOptions) && uomInfo.uomOptions.length)
+          ? uomInfo.uomOptions
+          : ['KG']);
+      return Array.from(new Set(list.map(function (x) {
+        return String(x || '').trim().toUpperCase();
+      }).filter(Boolean)));
+    }
+
+    function applyGlobalUomOptionsToRows() {
+      document.querySelectorAll('.item-row').forEach(function (row) {
+        const uomSelect = row.querySelector('.uom-select');
+        const preferred = String((uomSelect && uomSelect.value) || allActiveUoms[0] || 'KG').trim().toUpperCase();
+        setUomOptions(uomSelect, allActiveUoms, preferred);
+        applyQtyUomToRow(row, (uomSelect && uomSelect.value) ? uomSelect.value : preferred);
+        syncSplitUomAndTotals(row);
+      });
+    }
+
+    function isReturnMode() {
+      return document.getElementById('receiptType').value === 'RETURN';
+    }
+
+    function isDeadStockMode() {
+      return isReturnMode() && !!document.getElementById('isDeadStockReturn') && document.getElementById('isDeadStockReturn').checked;
+    }
+
+    function applyDeadStockModeToRow(row) {
+      if (!row) return;
+      const dead = isDeadStockMode();
+      const siteSelect = row.querySelector('.site-select');
+      const locationSelect = row.querySelector('.location-select');
+      const binSelect = row.querySelector('.bin-select');
+      const expiryInput = row.querySelector('.expiry-input');
+
+      if (siteSelect) {
+        siteSelect.required = !dead;
+        siteSelect.disabled = dead;
+        if (dead) siteSelect.value = '';
+      }
+      if (locationSelect) {
+        locationSelect.required = !dead;
+        locationSelect.disabled = dead;
+        if (dead) locationSelect.value = '';
+      }
+      if (binSelect) {
+        binSelect.required = !dead;
+        binSelect.disabled = dead;
+        if (dead) binSelect.value = '';
+      }
+      if (expiryInput) {
+        expiryInput.disabled = dead;
+        if (dead) expiryInput.value = '';
+      }
+      if (dead) {
+        setSplitBinMode(row, false);
+      }
+    }
+
+    function applyDeadStockModeToRows() {
+      document.querySelectorAll('.item-row').forEach(function (row) {
+        applyDeadStockModeToRow(row);
+      });
+    }
+
+    function toggleDeadStockMode() {
+      const dead = isDeadStockMode();
+      const reasonInput = document.getElementById('deadStockReason');
+      if (reasonInput) {
+        reasonInput.disabled = !dead;
+        reasonInput.required = dead;
+        if (!dead) reasonInput.value = '';
+      }
+      applyDeadStockModeToRows();
+    }
+
+    function applyReceiptModeToRow(row) {
+      if (!row) return;
+      const returnMode = isReturnMode();
+      const lotInput = row.querySelector('.lot-input');
+      const versionInput = row.querySelector('.version-input');
+      const versionHint = row.querySelector('.version-hint');
+
+      if (lotInput) {
+        if (returnMode) lotInput.value = '';
+        lotInput.disabled = returnMode;
+        lotInput.placeholder = returnMode ? 'Auto' : 'Lot';
+      }
+
+      if (versionInput) {
+        if (returnMode) {
+          versionInput.value = '';
+          versionInput.placeholder = 'Auto';
+          versionInput.className = 'form-control version-input';
+          versionInput.title = 'Auto-derived from production ledger during return.';
+        } else {
+          versionInput.placeholder = '...';
+          versionInput.title = 'Auto-filled from inventory history. Edit if needed.';
+        }
+        versionInput.disabled = returnMode;
+      }
+
+      if (versionHint) {
+        if (returnMode) {
+          versionHint.textContent = 'Version auto-derived from production order ledger';
+          versionHint.className = 'version-hint found';
+          versionHint.title = '';
+        } else {
+          versionHint.textContent = '';
+          versionHint.className = 'version-hint';
+          versionHint.title = '';
+        }
+      }
+      if (returnMode) {
+        setSplitBinMode(row, false);
+      } else {
+        const splitBtn = row.querySelector('.split-bin-btn');
+        if (splitBtn) splitBtn.disabled = isDeadStockMode();
+      }
+      applyDeadStockModeToRow(row);
+    }
+
+    function applyReceiptModeToRows() {
+      document.querySelectorAll('.item-row').forEach(function (row) {
+        applyReceiptModeToRow(row);
+      });
+    }
+
+    function setType(type) {
+      document.getElementById('receiptType').value = type;
+      document.querySelectorAll('.type-option').forEach(el => el.classList.remove('active'));
+      if (type === 'PURCHASE') {
+        document.getElementById('optPurchase').classList.add('active');
+        document.getElementById('refLabel').innerText = "Bill Number";
+        document.getElementById('prodOrderField').classList.add('d-none');
+        document.getElementById('prodOrderNo').required = false;
+        document.getElementById('deadStockSection').classList.add('d-none');
+        if (document.getElementById('isDeadStockReturn')) {
+          document.getElementById('isDeadStockReturn').checked = false;
+        }
+        if (document.getElementById('deadStockReason')) {
+          document.getElementById('deadStockReason').value = '';
+        }
+      } else {
+        document.getElementById('optReturn').classList.add('active');
+        document.getElementById('refLabel').innerText = "Return Ref / Note";
+        document.getElementById('prodOrderField').classList.remove('d-none');
+        document.getElementById('prodOrderNo').required = true;
+        document.getElementById('deadStockSection').classList.remove('d-none');
+      }
+      toggleDeadStockMode();
+      applyReceiptModeToRows();
+    }
+
+    function addItemRow() {
+      itemCount++;
+      const template  = document.getElementById('itemRowTemplate');
+      const clone     = template.content.cloneNode(true);
+      const container = document.getElementById('itemsContainer');
+      container.appendChild(clone);
+
+      // Get the newly added row (last .item-row in container)
+      const rows   = container.querySelectorAll('.item-row');
+      const newRow = rows[rows.length - 1];
+
+      // Attach version lookup on blur (fires when user leaves the item code field)
+      const itemInput = newRow.querySelector('.item-input');
+      const uomSelect = newRow.querySelector('.uom-select');
+      itemInput.addEventListener('blur', function () {
+        lookupVersionForRow(this);
+        lookupUomForRow(this);
+      });
+      itemInput.addEventListener('input', function () {
+        clearVersionBanner(itemInput.closest('.item-row'));
+      });
+      if (uomSelect) {
+        setUomOptions(uomSelect, allActiveUoms, String(uomSelect.value || allActiveUoms[0] || 'KG').trim().toUpperCase());
+        applyQtyUomToRow(newRow, String(uomSelect.value || allActiveUoms[0] || 'KG').trim().toUpperCase());
+        uomSelect.addEventListener('change', function () {
+          applyQtyUomToRow(newRow, String(this.value || 'KG').trim() || 'KG');
+          syncSplitUomAndTotals(newRow);
+        });
+      }
+      const qtyInput = newRow.querySelector('.qty-input');
+      if (qtyInput) {
+        qtyInput.addEventListener('input', function () {
+          updateSplitTotals(newRow);
+        });
+      }
+      applyReceiptModeToRow(newRow);
+      applyDeadStockModeToRow(newRow);
+      initializeSplitBinForRow(newRow);
+    }
+
+    function removeRow(button) {
+      const row = button.closest('.item-row');
+      if (row) row.remove();
+    }
+
+    /**
+     * Called when user leaves the Item Code field.
+     * Calls getNextVersionForItemCode() on the server (read-only).
+     * Updates the version-input in the same row with the result.
+     */
+    function lookupVersionForRow(itemInput) {
+      const row     = itemInput.closest('.item-row');
+      const vInput  = row.querySelector('.version-input');
+      const vHint   = row.querySelector('.version-hint');
+      const code    = itemInput.value.trim();
+
+      // In production return mode, version is server-derived from PO ledger.
+      if (isReturnMode()) {
+        applyReceiptModeToRow(row);
+        return;
+      }
+
+      if (!code) {
+        vInput.value = '';
+        vInput.placeholder = '...';
+        vInput.className = 'form-control version-input';
+        vHint.textContent = '';
+        vHint.className   = 'version-hint';
+        vHint.title = '';
+        return;
+      }
+
+      vInput.value       = '';
+      vInput.placeholder = 'Looking up...';
+      vInput.className   = 'form-control version-input loading-version';
+      vInput.disabled    = true;
+      vHint.textContent  = '';
+      vHint.className    = 'version-hint';
+      vHint.title = '';
+
+      google.script.run
+        .withSuccessHandler(function (nextVersion) {
+          vInput.disabled = false;
+          vInput.value    = nextVersion;
+          vInput.className = 'form-control version-input auto-filled';
+          vInput.placeholder = nextVersion || 'V1';
+
+          if (nextVersion === 'V1') {
+            vHint.textContent = 'New item';
+            vHint.className = 'version-hint new';
+            return;
+          }
+
+          vHint.textContent = 'Checking shelves...';
+          vHint.className = 'version-hint found';
+
+          google.script.run
+            .withSuccessHandler(function (warn) {
+              if (warn && warn.message) {
+                // Short status in the narrow column hint
+                vHint.textContent = nextVersion + ' — older stock on shelves ↓';
+                vHint.className   = 'version-hint found';
+                vHint.title       = '';
+                // Full detail in the full-width banner below the row
+                renderVersionBanner(row, warn, nextVersion);
+              } else {
+                vHint.textContent = 'Previous stock found';
+                vHint.className   = 'version-hint found';
+                vHint.title = '';
+              }
+            })
+            .withFailureHandler(function () {
+              vHint.textContent = 'Previous stock found';
+              vHint.title = '';
+            })
+            .getVersionInwardWarning(code, nextVersion);
+        })
+        .withFailureHandler(function (err) {
+          vInput.disabled    = false;
+          vInput.value       = '';
+          vInput.placeholder = 'V1';
+          vInput.className   = 'form-control version-input';
+          vHint.textContent  = '';
+          vHint.className    = 'version-hint';
+          vHint.title = '';
+          console.warn('Version lookup failed:', err);
+        })
+        .getNextVersionForItemCode(code);
+    }
+
+    // ── Version shelf banner renderer ─────────────────────────────────────
+    /**
+     * Renders the full-width version warning banner below an item row.
+     * Called when getVersionInwardWarning returns bins with older stock.
+     * @param {Element} row  - the .item-row element
+     * @param {Object}  warn - { message, bins } from getVersionInwardWarning
+     * @param {string}  nextVersion - e.g. "V3"
+     */
+    function renderVersionBanner(row, warn, nextVersion) {
+      const banner = row.querySelector('.version-shelf-banner');
+      if (!banner) return;
+
+      // Parse the message to build structured chips
+      // Format from backend: "ℹ️ Older stock on shelves: V1: Bin-A (10.00 KG) | V2: Bin-B (5.00 KG). You are receiving V3."
+      let html = '<div class="vb-head">';
+      html += '<span>⚠️&nbsp;Older stock on shelves — you are receiving <strong>' + escHtml(nextVersion) + '</strong>. Confirm FIFO before proceeding.</span>';
+      html += '</div>';
+
+      // Try to parse version groups
+      const raw = String(warn.message || '');
+      // Strip the opening "ℹ️ Older stock on shelves: " and trailing ". You are receiving Vx."
+      const coreMatch = raw.match(/shelves:\s*(.*?)\.\s*You are receiving/s);
+      const core = coreMatch ? coreMatch[1] : '';
+
+      if (core) {
+        const groups = core.split(' | ');
+        html += '<div class="vb-bins">';
+        groups.forEach(function(grp) {
+          const colonIdx = grp.indexOf(':');
+          if (colonIdx === -1) { html += '<span class="vb-chip">' + escHtml(grp.trim()) + '</span>'; return; }
+          const verLabel = grp.slice(0, colonIdx).trim();
+          const binPart  = grp.slice(colonIdx + 1).trim();
+          html += '<span class="vb-chip v-label">' + escHtml(verLabel) + '</span>';
+          // Each bin is "BinCode (qty KG)"
+          binPart.split(',').forEach(function(b) {
+            html += '<span class="vb-chip">' + escHtml(b.trim()) + '</span>';
+          });
+        });
+        html += '</div>';
+      }
+
+      banner.innerHTML = html;
+      banner.classList.add('visible');
+    }
+
+    function clearVersionBanner(row) {
+      const banner = row && row.querySelector('.version-shelf-banner');
+      if (banner) { banner.innerHTML = ''; banner.classList.remove('visible'); }
+    }
+
+    // ── UOM lookup ─────────────────────────────────────────────────────────
+    /**
+     * Called when item code is entered. Fetches item UOM metadata from the server
+     * and updates the quantity label + dropdown options.
+     */
+    function lookupUomForRow(itemInput) {
+      const row      = itemInput.closest('.item-row');
+      if (!row) return;
+      const code     = String(itemInput.value || '').trim();
+      const qtyInput = row.querySelector('.qty-input');
+      const qtyLabel = row.querySelector('.qty-label');
+      const uomSelect = row.querySelector('.uom-select');
+      if (!code) {
+        const keep = String((uomSelect && uomSelect.value) || allActiveUoms[0] || 'KG').trim().toUpperCase();
+        setUomOptions(uomSelect, allActiveUoms, keep);
+        applyQtyUomToRow(row, (uomSelect && uomSelect.value) ? uomSelect.value : keep);
+        if (qtyInput) qtyInput.placeholder = 'Qty';
+        return;
+      }
+      google.script.run
+        .withSuccessHandler(function (uomInfo) {
+          const uom = (uomInfo && uomInfo.uomCode) ? String(uomInfo.uomCode).trim() : 'KG';
+          const opts = _extractAllUoms(uomInfo);
+          if (opts.length) allActiveUoms = opts;
+          const keep = String((uomSelect && uomSelect.value) || '').trim().toUpperCase();
+          const preferred = (keep && opts.indexOf(keep) >= 0) ? keep : uom;
+          setUomOptions(uomSelect, opts, preferred);
+          applyQtyUomToRow(row, (uomSelect && uomSelect.value) ? uomSelect.value : uom);
+          if (qtyInput) qtyInput.placeholder = 'Qty';
+          if (qtyLabel) qtyLabel.textContent  = 'Quantity (' + ((uomSelect && uomSelect.value) ? uomSelect.value : uom) + ')';
+        })
+        .withFailureHandler(function () {
+          const keep = String((uomSelect && uomSelect.value) || allActiveUoms[0] || 'KG').trim().toUpperCase();
+          setUomOptions(uomSelect, allActiveUoms, keep);
+          applyQtyUomToRow(row, (uomSelect && uomSelect.value) ? uomSelect.value : keep);
+          if (qtyInput) qtyInput.placeholder = 'Qty';
+          if (qtyLabel) qtyLabel.textContent  = 'Quantity (' + ((uomSelect && uomSelect.value) ? uomSelect.value : keep) + ')';
+        })
+        .getItemUomForForm(code);
+    }
+
+    function setUomOptions(selectEl, options, preferred) {
+      if (!selectEl) return;
+      const unique = Array.from(new Set((options || []).map(function (o) {
+        return String(o || '').trim().toUpperCase();
+      }).filter(Boolean)));
+      const fallback = Array.isArray(allActiveUoms) && allActiveUoms.length ? allActiveUoms : ['KG'];
+      const list = unique.length ? unique : fallback;
+      const keep = String(preferred || selectEl.value || list[0] || 'KG').trim().toUpperCase();
+      selectEl.innerHTML = '';
+      list.forEach(function (u) {
+        const opt = document.createElement('option');
+        opt.value = u;
+        opt.textContent = u;
+        selectEl.appendChild(opt);
+      });
+      if (list.indexOf(keep) >= 0) selectEl.value = keep;
+      else selectEl.value = list[0];
+    }
+
+    function applyQtyUomToRow(row, uomCode) {
+      if (!row) return;
+      const qtyInput = row.querySelector('.qty-input');
+      const qtyLabel = row.querySelector('.qty-label');
+      const uom = String(uomCode || 'KG').trim().toUpperCase() || 'KG';
+      if (!qtyInput) return;
+      qtyInput.dataset.uom = uom;
+      const discrete = ['NOS', 'PCS', 'PC', 'EA', 'UNIT', 'UNITS'].indexOf(uom) >= 0;
+      qtyInput.step = discrete ? '1' : '0.01';
+      qtyInput.min = discrete ? '1' : '0.01';
+      if (discrete && qtyInput.value && qtyInput.value.indexOf('.') >= 0) {
+        qtyInput.value = String(Math.round(Number(qtyInput.value) || 0));
+      }
+      if (qtyLabel) qtyLabel.textContent = 'Quantity (' + uom + ')';
+    }
+
+    function getBinsForRow(row) {
+      const site = String((row.querySelector('.site-select') || {}).value || '').trim();
+      const location = String((row.querySelector('.location-select') || {}).value || '').trim();
+      if (!site || !location) return [];
+      return (binsData || []).filter(function (b) {
+        return String(b.site || '').trim() === site && String(b.location || '').trim() === location;
+      });
+    }
+
+    function populateSplitBinSelect(selectEl, row, preferredBinId) {
+      if (!selectEl || !row) return;
+      const bins = getBinsForRow(row);
+      selectEl.innerHTML = '<option value="">Select Bin...</option>';
+      bins.forEach(function (bin) {
+        const opt = document.createElement('option');
+        opt.value = String(bin.binId || '').trim();
+        const cap = Number(bin.maxCapacity || 0);
+        const cur = Number(bin.currentUsage || 0);
+        const capTxt = cap > 0 ? (' [' + cur.toFixed(2) + '/' + cap.toFixed(2) + ' ' + (bin.capacityUom || 'KG') + ']') : '';
+        opt.textContent = String(bin.binCode || bin.binId || '').trim() + capTxt;
+        selectEl.appendChild(opt);
+      });
+      if (preferredBinId && Array.from(selectEl.options).some(function (o) { return o.value === preferredBinId; })) {
+        selectEl.value = preferredBinId;
+      }
+    }
+
+    function buildPlannedQtyByBin(row) {
+      const map = {};
+      row.querySelectorAll('.bin-splits-tbody .split-row').forEach(function (tr) {
+        const binId = String((tr.querySelector('.split-bin-select') || {}).value || '').trim();
+        const qty = Number((tr.querySelector('.split-qty-input') || {}).value);
+        if (!binId || !isFinite(qty) || qty <= 0) return;
+        map[binId] = (map[binId] || 0) + qty;
+      });
+      return map;
+    }
+
+    function updateCapacityForSplitRow(row, tr, plannedByBin) {
+      if (!tr) return;
+      const binId = String((tr.querySelector('.split-bin-select') || {}).value || '').trim();
+      const fill = tr.querySelector('.capacity-fill');
+      const txt = tr.querySelector('.capacity-text');
+      if (!binId || !fill || !txt) {
+        if (fill) fill.style.width = '0%';
+        if (txt) txt.textContent = 'Select bin';
+        return;
+      }
+      const bin = (binsData || []).find(function (b) {
+        return String(b.binId || '').trim() === binId;
+      });
+      if (!bin) {
+        fill.style.width = '0%';
+        txt.textContent = 'Bin not found';
+        return;
+      }
+      const current = Number(bin.currentUsage || 0);
+      const max = Number(bin.maxCapacity || 0);
+      const planned = Number((plannedByBin && plannedByBin[binId]) || 0);
+      const projected = current + planned;
+      let pct = 0;
+      if (max > 0) pct = Math.max(0, Math.min(100, (projected / max) * 100));
+      fill.style.width = pct.toFixed(1) + '%';
+      fill.className = 'capacity-fill ' + (pct >= 90 ? 'danger' : (pct >= 70 ? 'warn' : 'ok'));
+      if (max > 0) {
+        txt.textContent = 'Projected: ' + projected.toFixed(2) + ' / ' + max.toFixed(2) + ' ' + (bin.capacityUom || 'KG');
+      } else {
+        txt.textContent = 'Capacity not configured';
+      }
+    }
+
+    function updateSplitTotals(row) {
+      if (!row) return;
+      const container = row.querySelector('.bin-splits-container');
+      if (!container || container.style.display === 'none') return;
+      const splitRows = Array.from(container.querySelectorAll('.split-row'));
+      const total = splitRows.reduce(function (acc, tr) {
+        const n = Number((tr.querySelector('.split-qty-input') || {}).value);
+        return acc + (isFinite(n) && n > 0 ? n : 0);
+      }, 0);
+      const mainQty = Number((row.querySelector('.qty-input') || {}).value);
+      const normalizedMain = (isFinite(mainQty) && mainQty > 0) ? mainQty : 0;
+      const splitTotalEl = row.querySelector('.split-total');
+      const itemTotalEl = row.querySelector('.item-total-qty');
+      const warningEl = row.querySelector('.split-warning');
+      if (splitTotalEl) splitTotalEl.textContent = total.toFixed(2);
+      if (itemTotalEl) itemTotalEl.textContent = normalizedMain.toFixed(2);
+      const mismatch = Math.abs(total - normalizedMain) > 0.001;
+      if (warningEl) warningEl.style.display = mismatch ? 'inline' : 'none';
+
+      const plannedByBin = buildPlannedQtyByBin(row);
+      splitRows.forEach(function (tr) {
+        updateCapacityForSplitRow(row, tr, plannedByBin);
+      });
+    }
+
+    function syncSplitUomAndTotals(row) {
+      if (!row) return;
+      const uom = String((row.querySelector('.uom-select') || {}).value || 'KG').trim().toUpperCase();
+      const discrete = ['NOS', 'PCS', 'PC', 'EA', 'UNIT', 'UNITS'].indexOf(uom) >= 0;
+      row.querySelectorAll('.split-qty-input').forEach(function (inp) {
+        inp.step = discrete ? '1' : '0.01';
+        inp.min = discrete ? '1' : '0.01';
+        if (discrete && inp.value && inp.value.indexOf('.') >= 0) {
+          inp.value = String(Math.round(Number(inp.value) || 0));
+        }
+      });
+      updateSplitTotals(row);
+    }
+
+    function addSplitRow(row, initial) {
+      const tbody = row.querySelector('.bin-splits-tbody');
+      if (!tbody) return;
+      const tr = document.createElement('tr');
+      tr.className = 'split-row';
+      tr.innerHTML =
+        '<td class="split-drag"><i class="fa-solid fa-grip-vertical"></i></td>' +
+        '<td><select class="form-select form-select-sm split-bin-select"></select></td>' +
+        '<td><input type="number" class="form-control form-control-sm split-qty-input" min="0.01" step="0.01" placeholder="Qty"></td>' +
+        '<td><div class="capacity-wrap"><div class="capacity-track"><div class="capacity-fill ok"></div></div><small class="capacity-text">Select bin</small></div></td>' +
+        '<td><button type="button" class="btn btn-sm btn-outline-danger remove-split-row"><i class="fa-solid fa-xmark"></i></button></td>';
+      tbody.appendChild(tr);
+
+      const selectEl = tr.querySelector('.split-bin-select');
+      const qtyEl = tr.querySelector('.split-qty-input');
+      const removeBtn = tr.querySelector('.remove-split-row');
+      populateSplitBinSelect(selectEl, row, initial && initial.binId ? String(initial.binId) : '');
+      qtyEl.value = (initial && isFinite(Number(initial.quantity))) ? String(Number(initial.quantity)) : '';
+      syncSplitUomAndTotals(row);
+
+      selectEl.addEventListener('change', function () { updateSplitTotals(row); });
+      qtyEl.addEventListener('input', function () { updateSplitTotals(row); });
+      removeBtn.addEventListener('click', function () {
+        tr.remove();
+        updateSplitTotals(row);
+      });
+    }
+
+    function setSplitBinMode(row, enabled) {
+      const container = row.querySelector('.bin-splits-container');
+      const btn = row.querySelector('.split-bin-btn');
+      const mainBin = row.querySelector('.bin-select');
+      const dead = isDeadStockMode();
+      const returnMode = isReturnMode();
+      const allowSplit = !dead && !returnMode;
+      const finalEnabled = !!enabled && allowSplit;
+
+      if (!container || !btn || !mainBin) return;
+      container.style.display = finalEnabled ? 'block' : 'none';
+      btn.textContent = finalEnabled ? '- Use Single Bin' : '+ Split Bins';
+      btn.disabled = !allowSplit;
+      if (finalEnabled) {
+        mainBin.required = false;
+        mainBin.disabled = true;
+        if (!container.querySelector('.split-row')) addSplitRow(row);
+      } else {
+        mainBin.disabled = dead ? true : !String((row.querySelector('.location-select') || {}).value || '').trim();
+        mainBin.required = !dead;
+        const tbody = container.querySelector('.bin-splits-tbody');
+        if (tbody) tbody.innerHTML = '';
+      }
+      updateSplitTotals(row);
+    }
+
+    function updateSplitBinOptions(row) {
+      if (!row) return;
+      row.querySelectorAll('.split-bin-select').forEach(function (sel) {
+        const keep = String(sel.value || '').trim();
+        populateSplitBinSelect(sel, row, keep);
+      });
+      updateSplitTotals(row);
+    }
+
+    function initializeSplitBinForRow(row) {
+      if (!row) return;
+      const btn = row.querySelector('.split-bin-btn');
+      const addBtn = row.querySelector('.add-split-row');
+      const tbody = row.querySelector('.bin-splits-tbody');
+      if (!btn || !addBtn || !tbody) return;
+
+      btn.addEventListener('click', function () {
+        const enabled = row.querySelector('.bin-splits-container').style.display !== 'block';
+        setSplitBinMode(row, enabled);
+      });
+      addBtn.addEventListener('click', function () { addSplitRow(row); });
+
+      if (window.Sortable) {
+        Sortable.create(tbody, {
+          animation: 160,
+          handle: '.split-drag',
+          ghostClass: 'table-active',
+          onEnd: function () { updateSplitTotals(row); }
+        });
+      }
+      setSplitBinMode(row, false);
+    }
+
+    function escHtml(s) {
+      return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+
+
+    function loadLocationsForRow(siteSelect) {
+      const row = siteSelect.closest('.item-row');
+      const locSelect = row.querySelector('.location-select');
+      const binSelect = row.querySelector('.bin-select');
+      const site = siteSelect.value;
+
+      locSelect.innerHTML = '<option value="">Select Location...</option>';
+      binSelect.innerHTML = '<option value="">Select Bin...</option>';
+      binSelect.disabled = true;
+
+      if (!site) {
+        locSelect.disabled = true;
+        updateSplitBinOptions(row);
+        updateSplitTotals(row);
+        return;
+      }
+
+      const filtered = locationsMasterData.filter(l => l.site === site);
+      filtered.forEach(l => {
+        const opt = document.createElement('option');
+        opt.value = l.location;
+        opt.textContent = l.location;
+        locSelect.appendChild(opt);
+      });
+      locSelect.disabled = false;
+      updateSplitBinOptions(row);
+      updateSplitTotals(row);
+    }
+
+    function filterBinsForRow(locSelect) {
+      const row = locSelect.closest('.item-row');
+      const siteSelect = row.querySelector('.site-select');
+      const binSelect = row.querySelector('.bin-select');
+      const site = siteSelect.value;
+      const location = locSelect.value;
+
+      binSelect.innerHTML = '<option value="">Select Bin...</option>';
+      if (!location) {
+        binSelect.disabled = true;
+        updateSplitBinOptions(row);
+        updateSplitTotals(row);
+        return;
+      }
+
+      binsData.forEach(bin => {
+        if (bin.location === location && bin.site === site) {
+          const opt = document.createElement('option');
+          opt.value = bin.binId;
+          opt.textContent = bin.binCode;
+          binSelect.appendChild(opt);
+        }
+      });
+      binSelect.disabled = false;
+      updateSplitBinOptions(row);
+      updateSplitTotals(row);
+    }
+
+    function handleFormSubmit(e) {
+      e.preventDefault();
+      const submitBtn = document.getElementById('submitBtn');
+      const loading = document.getElementById('loading');
+
+      submitBtn.disabled = true;
+      loading.classList.remove('d-none');
+
+      const type = document.getElementById('receiptType').value;
+      const ginNo = document.getElementById('ginNo').value;
+      const prodOrder = document.getElementById('prodOrderNo').value;
+      const remarks = document.getElementById('remarks').value;
+      const isDeadStock = isDeadStockMode();
+      const deadStockReason = String((document.getElementById('deadStockReason') || {}).value || '').trim();
+
+      if (type === 'RETURN' && isDeadStock && !deadStockReason) {
+        onFailure(new Error('Dead stock reason is required.'));
+        return;
+      }
+
+      const items = [];
+      try {
+        document.querySelectorAll('.item-row').forEach(row => {
+          const siteSelect = row.querySelector('.site-select');
+          const locSelect = row.querySelector('.location-select');
+          const batchNo = row.querySelector('.batch-input').value.trim();
+          if (!batchNo) throw new Error('Batch No is required.');
+          const lotNoValue = type === 'RETURN' ? '' : row.querySelector('.lot-input').value.trim();
+          const versionValue = type === 'RETURN' ? '' : (row.querySelector('.version-input').value.trim() || 'V1');
+          var qtyInp = row.querySelector('.qty-input');
+          const lineQty = Number(qtyInp.value);
+          const splitContainer = row.querySelector('.bin-splits-container');
+          const splitEnabled = !!splitContainer && splitContainer.style.display === 'block';
+          const binSplits = [];
+
+          if (splitEnabled) {
+            const splitRows = row.querySelectorAll('.split-row');
+            if (!splitRows.length) throw new Error('Please add at least one split row.');
+            let splitTotal = 0;
+            splitRows.forEach(function (sr, idx) {
+              const splitBinId = String((sr.querySelector('.split-bin-select') || {}).value || '').trim();
+              const splitQty = Number((sr.querySelector('.split-qty-input') || {}).value);
+              if (!splitBinId) throw new Error('Split row ' + (idx + 1) + ': bin is required.');
+              if (!isFinite(splitQty) || splitQty <= 0) throw new Error('Split row ' + (idx + 1) + ': quantity must be > 0.');
+              splitTotal += splitQty;
+              binSplits.push({
+                binId: splitBinId,
+                quantity: splitQty,
+                site: siteSelect.value,
+                location: locSelect.value
+              });
+            });
+            if (!isFinite(lineQty) || lineQty <= 0) throw new Error('Main quantity is required for split allocation.');
+            if (Math.abs(splitTotal - lineQty) > 0.001) {
+              throw new Error('Split-bin total (' + splitTotal.toFixed(2) + ') must match main quantity (' + lineQty.toFixed(2) + ').');
+            }
+          }
+
+          const selectedBin = String((row.querySelector('.bin-select') || {}).value || '').trim();
+          if (!splitEnabled && !isDeadStock && !selectedBin) {
+            throw new Error('Please select a bin or enable split bins.');
+          }
+
+          items.push({
+            itemCode: row.querySelector('.item-input').value.trim(),
+            batchNumber: batchNo,
+            lotNo: lotNoValue,
+            version: versionValue,
+            quantity: lineQty,
+            uom: String((row.querySelector('.uom-select') || {}).value || qtyInp.dataset.uom || 'KG'),
+            binId: splitEnabled ? '' : selectedBin,
+            expiryDate: row.querySelector('.expiry-input').value,
+            location: locSelect.value,
+            site: siteSelect.value,
+            binSplits: splitEnabled ? binSplits : []
+          });
+        });
+      } catch (err) {
+        onFailure(err);
+        return;
+      }
+
+      if (type === 'PURCHASE') {
+        google.script.run
+          .withSuccessHandler(onSuccess)
+          .withFailureHandler(onFailure)
+          .submitInwardV2({ ginNo, items, remarks });
+      } else {
+        // FIX: Single atomic call with all items (was: concurrent Promise.all which breaks script locks)
+        // FIX: Pass refNote so "Return Ref / Note" is now saved to Inventory GIN_NO and Movement log
+        google.script.run
+          .withSuccessHandler(onSuccess)
+          .withFailureHandler(onFailure)
+          .submitReturnBatch({
+            prodOrderNo : prodOrder,
+            refNote     : ginNo,      // â† the "Return Ref / Note" field value, now saved
+            items       : items,
+            remarks     : remarks,
+            isDeadStock : isDeadStock,
+            deadStockReason: deadStockReason
+          });
+      }
+    }
+
+    function onSuccess(result) {
+      document.getElementById('submitBtn').disabled = false;
+      document.getElementById('loading').classList.add('d-none');
+
+      google.script.run.clearDashboardCache();
+
+      const type = document.getElementById('receiptType').value;
+      if (type === 'RETURN' && result && result.returned) {
+        const refNote = document.getElementById('ginNo').value;
+        const deadCount = (result.returned || []).filter(function (r) { return r && r.deadStock === true; }).length;
+        if (deadCount > 0) {
+          alert('SUCCESS!\n\nDead stock return recorded.\n\nRef: ' + (refNote || 'RET-' + document.getElementById('prodOrderNo').value) + '\nDead stock lines: ' + deadCount);
+        } else {
+          alert('SUCCESS!\n\nProduction Return recorded.\n\nRef: ' + (refNote || 'RET-' + document.getElementById('prodOrderNo').value) + '\nItems returned: ' + result.returned.length);
+        }
+      } else {
+        alert('SUCCESS!\n\nInward transaction completed.\n\nMaterial received and recorded.');
+      }
+
+      document.getElementById('inwardForm').reset();
+      document.getElementById('itemsContainer').innerHTML = '';
+      itemCount = 0;
+      addItemRow();
+
+      goBack();
+    }
+
+    function onFailure(err) {
+      alert('Error: ' + err.message);
+      document.getElementById('submitBtn').disabled = false;
+      document.getElementById('loading').classList.add('d-none');
+    }
+
+    function goBack() {
+      if (navInProgress) return;
+      navInProgress = true;
+      destroyScreen();
+      google.script.run.withSuccessHandler(function (url) {
+        window.top.location.href = url + '?form=dashboard';
+      }).getScriptUrl();
+    }
+
+    function destroyScreen() {
+      binsData = [];
+      locationsMasterData = [];
+      itemCount = 0;
+      const container = document.getElementById('itemsContainer');
+      if (container) container.innerHTML = '';
+    }
+  </script>
+</body>
+
+</html>

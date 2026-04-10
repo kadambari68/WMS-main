@@ -1,0 +1,281 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <base target="_top">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QA Approval | WMS</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <style>
+        body {
+            background-color: #F3F4F6;
+            font-family: 'Inter', sans-serif;
+            padding: 20px;
+        }
+
+        .card {
+            border: none;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+        }
+
+        .pending-item {
+            background: #FFF3CD;
+            border: 1px solid #FFCA2C;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 10px;
+        }
+
+        .btn-approve {
+            background: #10B981;
+            color: white;
+            border: none;
+        }
+
+        .btn-reject {
+            background: #EF4444;
+            color: white;
+            border: none;
+        }
+
+        .qa-qty {
+            max-width: 170px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container" style="max-width: 1000px;">
+        <div class="card p-4">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <h4 class="mb-0"><i class="fa-solid fa-clipboard-check text-warning me-2"></i>QA Approval</h4>
+                <button class="btn btn-sm btn-outline-secondary" onclick="goBack()">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+
+            <div id="loading" class="text-center my-5">
+                <div class="spinner-border text-primary" role="status"></div>
+                <p class="mt-2">Loading pending items...</p>
+            </div>
+
+            <div id="itemsContainer" class="d-none"></div>
+        </div>
+    </div>
+
+    <script>
+        let screenToken = 0;
+        let navInProgress = false;
+
+        window.onload = function () {
+            mountScreen();
+        };
+
+        window.onbeforeunload = function () {
+            destroyScreen();
+        };
+
+        function mountScreen() {
+            screenToken++;
+            loadItems(screenToken);
+        }
+
+        function destroyScreen() {
+            screenToken++;
+            const container = document.getElementById('itemsContainer');
+            const loading = document.getElementById('loading');
+            if (container) {
+                container.innerHTML = '';
+                container.classList.add('d-none');
+            }
+            if (loading) loading.classList.remove('d-none');
+        }
+
+        function loadItems(token) {
+  const loading = document.getElementById('loading');
+  if (loading) loading.classList.remove('d-none');
+  
+  console.log('[QA_UI] Calling getQaInventoryView...');
+  
+  google.script.run
+    .withSuccessHandler(function (items) {
+      console.log('[QA_UI] Success handler called');
+      console.log('[QA_UI] Raw response:', items);
+      console.log('[QA_UI] Response constructor:', items ? items.constructor.name : 'null');
+      console.log('[QA_UI] Type:', typeof items);
+      console.log('[QA_UI] Is Array:', Array.isArray(items));
+      console.log('[QA_UI] Keys:', items ? Object.keys(items) : 'N/A');
+      console.log('[QA_UI] Length:', items ? items.length : 'N/A');
+      
+      if (token !== screenToken) {
+        console.log('[QA_UI] Token mismatch, ignoring');
+        return;
+      }
+      
+      // Enhanced error detection
+      if (items === null || items === undefined) {
+        console.error('[QA_UI] CRITICAL: Response is null/undefined');
+        alert('ERROR: Backend returned null. Check server logs with [QA_BACKEND] tag.');
+        return;
+      }
+      
+      const normalized = normalizeItems(items);
+      console.log('[QA_UI] After normalization:', normalized);
+      console.log('[QA_UI] Normalized length:', normalized.length);
+      
+      if (!Array.isArray(normalized)) {
+        console.error('[QA_UI] CRITICAL: Normalized result is not an array', normalized);
+        alert('ERROR: Failed to normalize response. Got: ' + typeof normalized);
+        return;
+      }
+      
+      displayItems(normalized);
+    })
+    .withFailureHandler(function (err) {
+      console.error('[QA_UI] Failure handler called');
+      console.error('[QA_UI] Error:', err);
+      console.error('[QA_UI] Error message:', err ? err.message : 'N/A');
+      console.error('[QA_UI] Error stack:', err ? err.stack : 'N/A');
+      
+      if (token !== screenToken) return;
+      alert('Error loading QA items: ' + (err ? err.message : 'Unknown error'));
+    })
+    .getQaInventoryView();
+}
+        function normalizeItems(payload) {
+            if (Array.isArray(payload)) return payload;
+            if (payload && Array.isArray(payload.items)) return payload.items;
+            return [];
+        }
+
+        function displayItems(items) {
+            document.getElementById('loading').classList.add('d-none');
+            const container = document.getElementById('itemsContainer');
+            container.classList.remove('d-none');
+
+            const safeItems = Array.isArray(items) ? items : [];
+            if (safeItems.length === 0) {
+                container.innerHTML = '<div class="alert alert-success"><strong>All Clear!</strong> No inventory rows to review.</div>';
+                return;
+            }
+
+            let html = `<p class="text-muted mb-3">Found ${safeItems.length} inventory rows to review</p>`;
+
+            safeItems.forEach(item => {
+                const safeItem = item || {};
+                const uom = String(safeItem.uom || safeItem.uomCode || 'KG');
+                const dateValue = safeItem.inwardDate? toDateInputValue(safeItem.inwardDate) : '';
+
+                let status = String(safeItem.qualityStatus || 'PENDING').toUpperCase();
+                let badgeClass = 'bg-secondary';
+                if (status === 'APPROVED') badgeClass = 'bg-success';
+                else if (status === 'HOLD') badgeClass = 'bg-danger';
+                else if (status === 'REJECTED') badgeClass = 'bg-danger';
+                else if (status === 'OVERRIDDEN') badgeClass = 'bg-warning';
+                else if (status === 'CLOSED') badgeClass = 'bg-dark';
+                else badgeClass = 'bg-secondary';
+
+                let overrideInfo = '';
+                if (status === 'OVERRIDDEN' || status === 'CLOSED') {
+                    const by = safeItem.overriddenBy || 'Unknown';
+                    const at = safeItem.overriddenAt || '';
+                    const reason = safeItem.overrideReason || '';
+                    const action = safeItem.overrideAction || '';
+                    const movementId = safeItem.overrideMovementId || '';
+                    overrideInfo = `
+                      <div class="small text-muted mt-1">
+                        Override: ${action} by ${by} ${at ? 'on ' + at : ''}<br>
+                        Reason: ${reason || '-'}${movementId ? '<br>Movement: ' + movementId : ''}
+                      </div>`;
+                }
+
+                let actions = '';
+                if (status === 'OVERRIDDEN') {
+                    actions = `
+                      <button class="btn btn-outline-dark btn-sm" onclick="updateStatus('${safeItem.inventoryId}', 'CLOSED')">
+                        <i class="fa-solid fa-lock me-1"></i>Close
+                      </button>`;
+                } else if (status !== 'CLOSED') {
+                    actions = `
+                      <button class="btn btn-approve btn-sm me-2" onclick="updateStatus('${safeItem.inventoryId}', 'APPROVED')">
+                        <i class="fa-solid fa-check me-1"></i>Approve
+                      </button>
+                      <button class="btn btn-reject btn-sm" onclick="updateStatus('${safeItem.inventoryId}', 'REJECTED')">
+                        <i class="fa-solid fa-times me-1"></i>Reject
+                      </button>`;
+                }
+
+                html += `
+          <div class="pending-item" id="item-${safeItem.inventoryId}">
+            <div class="row align-items-center">
+              <div class="col-md-6">
+                <strong>${safeItem.itemCode || ''}</strong> - Batch: ${safeItem.batchId || ''}<br>
+                <small class="text-muted">Bin: ${safeItem.binId || ''} | GIN: ${safeItem.ginNo || ''}</small><br>
+                <span class="badge bg-secondary">${Number(safeItem.quantity || 0)} ${uom}</span>
+                <span class="badge ${badgeClass} ms-2">${status}</span>
+                ${overrideInfo}
+              </div>
+              <div class="col-md-6 text-end">
+                <div class="d-flex justify-content-end align-items-center mb-2">
+                  ${status !== 'CLOSED' ? `<input type="number" class="form-control form-control-sm qa-qty me-2" id="qa-approve-qty-${safeItem.inventoryId}" min="0.001" step="0.001" max="${Number(safeItem.quantity || 0)}" placeholder="Approve qty (opt)">` : ''}
+                  <input type="date" class="form-control form-control-sm qa-date me-2" id="qa-date-${safeItem.inventoryId}" value="${dateValue}" ${status === 'CLOSED' ? 'disabled' : ''}>
+                </div>
+                ${actions}
+              </div>
+            </div>
+          </div>
+        `;
+            });
+
+            container.innerHTML = html;
+        }
+
+        function updateStatus(inventoryId, status) {
+            const remarks = prompt(`Enter remarks for ${status}:`);
+            if (remarks === null) return; // Cancelled
+            const dateInput = document.getElementById('qa-date-' + inventoryId);
+            const qualityDate = dateInput ? dateInput.value : '';
+            const qtyInput = document.getElementById('qa-approve-qty-' + inventoryId);
+            const approvedQty = (status === 'APPROVED' && qtyInput && qtyInput.value !== '') ? Number(qtyInput.value) : null;
+
+            google.script.run
+                .withSuccessHandler(() => {
+                    loadItems(screenToken);
+                    alert(`Status updated to ${status}`);
+                })
+                .withFailureHandler(err => alert('Error: ' + err.message))
+                .updateQualityStatus({
+                    inventoryId: inventoryId,
+                    newStatus: status,
+                    remarks: remarks,
+                    qualityDate: qualityDate,
+                    approvedQty: approvedQty
+                });
+        }
+
+        function toDateInputValue(value) {
+            if (!value) return '';
+            const d = new Date(value);
+            if (isNaN(d.getTime())) return '';
+            const yyyy = d.getFullYear();
+            const mm = String(d.getMonth() + 1).padStart(2, '0');
+            const dd = String(d.getDate()).padStart(2, '0');
+            return `${yyyy}-${mm}-${dd}`;
+        }
+
+        function goBack() {
+            if (navInProgress) return;
+            navInProgress = true;
+            destroyScreen();
+            google.script.run.withSuccessHandler(url => {
+                window.top.location.href = url + '?form=dashboard';
+            }).getScriptUrl();
+        }
+    </script>
+</body>
+
+</html>

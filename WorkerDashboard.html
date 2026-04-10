@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Worker Dashboard | WMS</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+
+    <style>
+        :root {
+            --primary: #6366F1;
+            --success: #10B981;
+            --warning: #F59E0B;
+            --info: #3B82F6;
+            --surface: #FFFFFF;
+            --bg: #F3F4F6;
+        }
+
+        body {
+            background: var(--bg);
+            font-family: 'Inter', sans-serif;
+            padding-bottom: 40px;
+        }
+
+        .navbar {
+            background: var(--surface);
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+            padding: 1rem 0;
+        }
+
+        .dashboard-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem 1rem;
+        }
+
+        .hero-card {
+            background: linear-gradient(135deg, #6366F1 0%, #8B5CF6 100%);
+            color: white;
+            border-radius: 16px;
+            padding: 2rem;
+            margin-bottom: 2rem;
+            box-shadow: 0 10px 25px -5px rgba(99, 102, 241, 0.4);
+        }
+
+        .hero-title {
+            font-size: 1.5rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+        }
+
+        .hero-subtitle {
+            opacity: 0.9;
+            font-size: 1rem;
+        }
+
+        .section-header {
+            font-size: 0.875rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: #64748B;
+            margin-bottom: 1rem;
+        }
+
+        /* Form Cards */
+        .form-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 1.5rem;
+        }
+
+        .form-card {
+            background: var(--surface);
+            border-radius: 16px;
+            padding: 2rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+            transition: all 0.3s ease;
+            cursor: pointer;
+            text-align: center;
+            border: 2px solid transparent;
+        }
+
+        .form-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 10px 20px -5px rgba(0, 0, 0, 0.1);
+            border-color: var(--primary);
+        }
+
+        .form-card-icon {
+            width: 64px;
+            height: 64px;
+            margin: 0 auto 1rem;
+            border-radius: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2rem;
+        }
+
+        .form-card-title {
+            font-weight: 600;
+            font-size: 1.1rem;
+            color: #0F172A;
+            margin-bottom: 0.5rem;
+        }
+
+        .form-card-desc {
+            font-size: 0.875rem;
+            color: #64748B;
+        }
+
+        .icon-inward {
+            background: #DBEAFE;
+            color: #2563EB;
+        }
+
+        .icon-dispatch {
+            background: #D1FAE5;
+            color: #059669;
+        }
+
+        .icon-transfer {
+            background: #FEF3C7;
+            color: #D97706;
+        }
+
+        .icon-production {
+            background: #E0E7FF;
+            color: #6366F1;
+        }
+    </style>
+</head>
+
+<body>
+    <!-- Navbar -->
+    <nav class="navbar">
+        <div class="container">
+            <span class="navbar-brand mb-0 h1">
+                <i class="fas fa-warehouse text-primary"></i>
+                WMS <span class="badge bg-secondary">WORKER</span>
+            </span>
+        </div>
+    </nav>
+
+    <!-- Dashboard -->
+    <div class="dashboard-container">
+
+        <!-- Hero Section -->
+        <div class="hero-card">
+            <div class="hero-title">Welcome back! 👋</div>
+            <div class="hero-subtitle">Select an operation to get started</div>
+        </div>
+
+        <!-- Core Operations -->
+        <div class="section-header">Warehouse Operations</div>
+        <div class="form-grid">
+            <div class="form-card" onclick="nav('inward')">
+                <div class="form-card-icon icon-inward">
+                    <i class="fas fa-download"></i>
+                </div>
+                <div class="form-card-title">Inward Processing</div>
+                <div class="form-card-desc">Receive new stock</div>
+            </div>
+
+            <div class="form-card" onclick="nav('dispatch')">
+                <div class="form-card-icon icon-dispatch">
+                    <i class="fas fa-truck-fast"></i>
+                </div>
+                <div class="form-card-title">Dispatch / Consumption</div>
+                <div class="form-card-desc">Ship or consume stock</div>
+            </div>
+
+            <div class="form-card" onclick="nav('transfer')">
+                <div class="form-card-icon icon-transfer">
+                    <i class="fas fa-right-left"></i>
+                </div>
+                <div class="form-card-title">Inter-Unit Transfer</div>
+                <div class="form-card-desc">Move between bins</div>
+            </div>
+
+            <div class="form-card" onclick="nav('production_request')">
+                <div class="form-card-icon icon-production">
+                    <i class="fas fa-industry"></i>
+                </div>
+                <div class="form-card-title">Production Request</div>
+                <div class="form-card-desc">Create work order</div>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        // Dynamic navigation function
+        function nav(formName) {
+            google.script.run
+                .withSuccessHandler(function (url) {
+                    window.top.location.href = url + '?form=' + formName;
+                })
+                .withFailureHandler(function (err) {
+                    alert('Navigation error: ' + err.message);
+                })
+                .getScriptUrl();
+        }
+    </script>
+</body>
+
+</html>

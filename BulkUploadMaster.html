@@ -1,0 +1,616 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <base target="_top">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bulk Upload Master Data | WMS</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Segoe UI', Tahoma, sans-serif;
+      background: #f5f7fa;
+      padding: 20px;
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    .header {
+      background: linear-gradient(135deg, #667eea, #764ba2);
+      color: white;
+      padding: 30px;
+      border-radius: 12px;
+      margin-bottom: 20px;
+      box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+    }
+
+    .header h1 {
+      font-size: 28px;
+      margin-bottom: 8px;
+    }
+
+    .nav-buttons {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+
+    .btn {
+      padding: 10px 20px;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: 600;
+      transition: all 0.2s;
+    }
+
+    .btn-primary {
+      background: #667eea;
+      color: white;
+    }
+
+    .btn-secondary {
+      background: white;
+      color: #374151;
+      border: 1px solid #d1d5db;
+    }
+
+    .steps {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 15px;
+      margin-bottom: 20px;
+    }
+
+    .step-card {
+      background: white;
+      padding: 20px;
+      border-radius: 12px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+      border-left: 4px solid #d1d5db;
+    }
+
+    .step-card.active {
+      border-left-color: #667eea;
+    }
+
+    .step-number {
+      display: inline-block;
+      width: 30px;
+      height: 30px;
+      background: #667eea;
+      color: white;
+      border-radius: 50%;
+      text-align: center;
+      line-height: 30px;
+      font-weight: 700;
+      margin-right: 10px;
+    }
+
+    .main-card {
+      background: white;
+      padding: 30px;
+      border-radius: 12px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+    }
+
+    .section {
+      margin-bottom: 30px;
+      padding-bottom: 30px;
+      border-bottom: 1px solid #e5e7eb;
+    }
+
+    .section:last-child {
+      border-bottom: none;
+    }
+
+    .section-title {
+      font-size: 18px;
+      font-weight: 700;
+      color: #111827;
+      margin-bottom: 15px;
+    }
+
+    .upload-type {
+      display: flex;
+      gap: 15px;
+      margin-bottom: 20px;
+    }
+
+    .upload-option {
+      flex: 1;
+      padding: 20px;
+      border: 2px solid #d1d5db;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .upload-option:hover {
+      border-color: #667eea;
+    }
+
+    .upload-option.selected {
+      border-color: #667eea;
+      background: #f3f4ff;
+    }
+
+    .paste-area {
+      width: 100%;
+      min-height: 200px;
+      padding: 15px;
+      border: 2px dashed #d1d5db;
+      border-radius: 8px;
+      font-family: 'Courier New', monospace;
+      font-size: 13px;
+      resize: vertical;
+    }
+
+    .paste-area:focus {
+      outline: none;
+      border-color: #667eea;
+      background: #f9fafb;
+    }
+
+    .column-mapping {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 15px;
+      margin-bottom: 20px;
+    }
+
+    .mapping-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .mapping-label {
+      font-weight: 600;
+      min-width: 80px;
+    }
+
+    .mapping-select {
+      flex: 1;
+      padding: 8px 12px;
+      border: 1px solid #d1d5db;
+      border-radius: 6px;
+    }
+
+    .preview-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 15px;
+      font-size: 13px;
+    }
+
+    .preview-table th {
+      background: #f9fafb;
+      padding: 10px;
+      text-align: left;
+      border: 1px solid #e5e7eb;
+      font-weight: 600;
+    }
+
+    .preview-table td {
+      padding: 8px 10px;
+      border: 1px solid #e5e7eb;
+    }
+
+    .preview-table tr:hover {
+      background: #f9fafb;
+    }
+
+    .validation-result {
+      padding: 15px;
+      border-radius: 8px;
+      margin-top: 15px;
+    }
+
+    .validation-success {
+      background: #d1fae5;
+      color: #065f46;
+      border: 1px solid #10b981;
+    }
+
+    .validation-error {
+      background: #fee2e2;
+      color: #991b1b;
+      border: 1px solid #ef4444;
+    }
+
+    .error-list {
+      margin-top: 10px;
+      padding-left: 20px;
+    }
+
+    .action-buttons {
+      display: flex;
+      gap: 10px;
+      margin-top: 20px;
+    }
+
+    .btn-large {
+      padding: 14px 30px;
+      font-size: 16px;
+    }
+
+    .help-box {
+      background: #f9fafb;
+      padding: 15px;
+      border-radius: 8px;
+      border-left: 4px solid #3b82f6;
+    }
+
+    .help-box h4 {
+      color: #1e40af;
+      margin-bottom: 10px;
+    }
+
+    .help-box ul {
+      margin-left: 20px;
+      color: #374151;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>Bulk Upload Master Data</h1>
+      <p>Import multiple items or batches at once</p>
+    </div>
+
+    <div class="nav-buttons">
+      <button class="btn btn-secondary" onclick="navTo('warehouse_dashboard')">Dashboard</button>
+      <button class="btn btn-secondary" onclick="navTo('create_item')">Create Single Item</button>
+    </div>
+
+    <div class="steps">
+      <div class="step-card active">
+        <span class="step-number">1</span>
+        <strong>Select Type</strong>
+      </div>
+      <div class="step-card">
+        <span class="step-number">2</span>
+        <strong>Paste Data</strong>
+      </div>
+      <div class="step-card">
+        <span class="step-number">3</span>
+        <strong>Map Columns</strong>
+      </div>
+      <div class="step-card">
+        <span class="step-number">4</span>
+        <strong>Validate & Upload</strong>
+      </div>
+    </div>
+
+    <div class="main-card">
+      <!-- STEP 1: Select Upload Type -->
+      <div class="section">
+        <div class="section-title">Step 1: Select Upload Type</div>
+        <div class="upload-type">
+          <div class="upload-option selected" onclick="selectType('items')">
+            <h3>Item Master</h3>
+            <p>Upload new items to catalog</p>
+          </div>
+          <div class="upload-option" onclick="selectType('batches')">
+            <h3>Batch Master</h3>
+            <p>Upload batch information</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- STEP 2: Paste Data -->
+      <div class="section">
+        <div class="section-title">Step 2: Paste Your Data</div>
+
+        <div class="help-box">
+          <h4>How to prepare your data:</h4>
+          <ul>
+            <li>Open your Excel/CSV file</li>
+            <li>Select the data rows (WITHOUT headers)</li>
+            <li>Copy (Ctrl+C)</li>
+            <li>Paste below (Ctrl+V) - tab separation will be preserved</li>
+          </ul>
+        </div>
+
+        <textarea id="pasteArea" class="paste-area" placeholder="Paste your data here...
+Example (tab-separated):
+CAP20	Capacitor 20uF	Electronics	NOS	100	0.5	Active
+CAP21	Capacitor 21uF	Electronics	NOS	100	0.5	Active
+RES10	Resistor 10k	Electronics	NOS	200	0.1	Active"></textarea>
+
+        <button class="btn btn-primary" onclick="parseData()" style="margin-top:10px;">
+          Parse Data
+        </button>
+      </div>
+
+      <!-- STEP 3: Column Mapping -->
+      <div class="section" id="mappingSection" style="display:none;">
+        <div class="section-title">Step 3: Map Columns to Fields</div>
+
+        <div id="columnMapping" class="column-mapping">
+          <!-- Dynamically populated -->
+        </div>
+
+        <div id="preview"></div>
+      </div>
+
+      <!-- STEP 4: Validation -->
+      <div class="section" id="validationSection" style="display:none;">
+        <div class="section-title">Step 4: Validation Results</div>
+
+        <div id="validationResult"></div>
+
+        <div class="action-buttons">
+          <button class="btn btn-primary btn-large" onclick="uploadData()" id="uploadBtn" disabled>
+            Upload to Sheet
+          </button>
+          <button class="btn btn-secondary btn-large" onclick="resetForm()">
+            Start Over
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let uploadType = 'items';
+    let parsedData = [];
+    let columnMap = {};
+
+    const itemFields = [
+      { key: 'item_code', label: 'Item Code', required: true },
+      { key: 'item_name', label: 'Item Name', required: true },
+      { key: 'category', label: 'Item Group Code', required: true },
+      { key: 'uom', label: 'UOM Code', required: true },
+      { key: 'min_stock', label: 'Min Stock Level', required: true }
+    ];
+
+    const batchFields = [
+      { key: 'item_code', label: 'Item Code', required: true },
+      { key: 'batch_number', label: 'Batch Number', required: true },
+      { key: 'expiry_date', label: 'Batch Exp Date', required: false }
+    ];
+
+    function selectType(type) {
+      uploadType = type;
+
+      document.querySelectorAll('.upload-option').forEach(opt => {
+        opt.classList.remove('selected');
+      });
+      event.target.closest('.upload-option').classList.add('selected');
+
+      resetForm();
+    }
+
+    function parseData() {
+      const text = document.getElementById('pasteArea').value.trim();
+
+      if (!text) {
+        alert('Please paste data first');
+        return;
+      }
+
+      // Parse TSV and filter out empty lines
+      const lines = text.split('\n').filter(line => line.trim() !== '');
+      parsedData = lines.map(line => line.split('\t'));
+
+      if (parsedData.length === 0) {
+        alert('No data found');
+        return;
+      }
+
+      // Show mapping section
+      document.getElementById('mappingSection').style.display = 'block';
+
+      // Build column mapping UI
+      const fields = uploadType === 'items' ? itemFields : batchFields;
+      const numCols = parsedData[0].length;
+
+      let mappingHtml = '';
+      for (let i = 0; i < numCols; i++) {
+        mappingHtml += '<div class="mapping-item">';
+        mappingHtml += '<span class="mapping-label">Column ' + (i + 1) + ':</span>';
+        mappingHtml += '<select class="mapping-select" id="col' + i + '" onchange="updateMapping()">';
+        mappingHtml += '<option value="">-- Select Field --</option>';
+
+        fields.forEach((field, fIdx) => {
+          const selected = i === fIdx ? 'selected' : '';
+          const required = field.required ? ' *' : '';
+          mappingHtml += '<option value="' + field.key + '" ' + selected + '>' +
+            field.label + required + '</option>';
+        });
+
+        mappingHtml += '</select>';
+        mappingHtml += '</div>';
+      }
+
+      document.getElementById('columnMapping').innerHTML = mappingHtml;
+
+      // Show preview
+      updateMapping();
+    }
+
+    function updateMapping() {
+      // Build column map
+      columnMap = {};
+      const selects = document.querySelectorAll('.mapping-select');
+      selects.forEach((select, index) => {
+        if (select.value) {
+          columnMap[index] = select.value;
+        }
+      });
+
+      // Show preview
+      showPreview();
+    }
+
+    function showPreview() {
+      const fields = uploadType === 'items' ? itemFields : batchFields;
+
+      let html = '<h4 style="margin-top:20px;">Preview (first 5 rows):</h4>';
+      html += '<table class="preview-table"><thead><tr>';
+
+      // Headers
+      Object.keys(columnMap).forEach(colIndex => {
+        const fieldKey = columnMap[colIndex];
+        const field = fields.find(f => f.key === fieldKey);
+        html += '<th>' + (field ? field.label : fieldKey) + '</th>';
+      });
+      html += '</tr></thead><tbody>';
+
+      // Data rows (max 5)
+      const previewRows = parsedData.slice(0, 5);
+      previewRows.forEach(row => {
+        html += '<tr>';
+        Object.keys(columnMap).forEach(colIndex => {
+          html += '<td>' + (row[colIndex] || '-') + '</td>';
+        });
+        html += '</tr>';
+      });
+
+      html += '</tbody></table>';
+
+      document.getElementById('preview').innerHTML = html;
+
+      // Enable validation
+      document.getElementById('validationSection').style.display = 'block';
+      validateData();
+    }
+
+    function validateData() {
+      const fields = uploadType === 'items' ? itemFields : batchFields;
+      const errors = [];
+
+      // Check all required fields mapped
+      const requiredFields = fields.filter(f => f.required);
+      const mappedFields = Object.values(columnMap);
+
+      requiredFields.forEach(field => {
+        if (!mappedFields.includes(field.key)) {
+          errors.push('Required field not mapped: ' + field.label);
+        }
+      });
+
+      // Validate each row
+      parsedData.forEach((row, index) => {
+        Object.keys(columnMap).forEach(colIndex => {
+          const fieldKey = columnMap[colIndex];
+          const field = fields.find(f => f.key === fieldKey);
+          const value = String(row[colIndex] || '').trim();
+
+          if (field && field.required && !value) {
+            errors.push('Row ' + (index + 1) + ': Missing ' + field.label);
+          }
+
+          // Specific validations
+          if (fieldKey === 'item_code' && value) {
+            // Relaxed regex: allows dots, hyphens, spaces, alphanumeric. length 3-50
+            if (!/^[A-Z0-9.\-_ ]{3,50}$/i.test(value)) {
+              errors.push('Row ' + (index + 1) + ': Invalid item code format (alphanumeric, dots, hyphens only)');
+            }
+          }
+
+          if (fieldKey === 'min_stock' && value) {
+            if (isNaN(value) || Number(value) < 0) {
+              errors.push('Row ' + (index + 1) + ': Min stock must be a positive number');
+            }
+          }
+        });
+      });
+
+      // Show results
+      const resultDiv = document.getElementById('validationResult');
+      const uploadBtn = document.getElementById('uploadBtn');
+
+      if (errors.length === 0) {
+        resultDiv.innerHTML = '<div class="validation-success">' +
+          '<strong>✓ Validation Passed</strong><br>' +
+          'Found ' + parsedData.length + ' rows. All data is valid and ready to upload.' +
+          '</div>';
+        uploadBtn.disabled = false;
+      } else {
+        resultDiv.innerHTML = '<div class="validation-error">' +
+          '<strong>✗ Validation Failed</strong><br>' +
+          'Please fix the following errors:<br>' +
+          '<ul class="error-list">' +
+          errors.slice(0, 10).map(err => '<li>' + err + '</li>').join('') +
+          (errors.length > 10 ? '<li>... and ' + (errors.length - 10) + ' more</li>' : '') +
+          '</ul></div>';
+        uploadBtn.disabled = true;
+      }
+    }
+
+    function uploadData() {
+      if (!confirm('Upload ' + parsedData.length + ' rows to ' + uploadType.toUpperCase() + '?')) {
+        return;
+      }
+
+      const uploadBtn = document.getElementById('uploadBtn');
+      const resultDiv = document.getElementById('validationResult');
+      uploadBtn.disabled = true;
+      uploadBtn.textContent = 'Uploading...';
+
+      google.script.run
+        .withSuccessHandler(function (result) {
+          uploadBtn.disabled = false;
+          uploadBtn.textContent = 'Upload to Sheet';
+
+          if (result.success) {
+            alert('Success! Uploaded ' + result.created + ' rows.');
+            resetForm();
+          } else {
+            // Enhanced error feedback from server
+            let errorHtml = '<div class="validation-error"><strong>✗ Upload Failed</strong><br>' + result.message;
+            if (result.errors && result.errors.length > 0) {
+              errorHtml += '<ul class="error-list">' +
+                result.errors.slice(0, 10).map(e => '<li>' + e + '</li>').join('') +
+                (result.errors.length > 10 ? '<li>... and ' + (result.errors.length - 10) + ' more</li>' : '') +
+                '</ul>';
+            }
+            errorHtml += '</div>';
+            resultDiv.innerHTML = errorHtml;
+            alert('Upload failed. See validation results for details.');
+          }
+        })
+        .withFailureHandler(function (error) {
+          uploadBtn.disabled = false;
+          uploadBtn.textContent = 'Upload to Sheet';
+          alert('Upload failed: ' + error.message);
+        })
+        .bulkUploadMasterData({
+          type: uploadType,
+          rows: parsedData,
+          columnMap: columnMap
+        });
+    }
+
+    function resetForm() {
+      document.getElementById('pasteArea').value = '';
+      document.getElementById('mappingSection').style.display = 'none';
+      document.getElementById('validationSection').style.display = 'none';
+      parsedData = [];
+      columnMap = {};
+    }
+
+    function navTo(form) {
+      google.script.run
+        .withSuccessHandler(function (url) {
+          window.top.location.href = url + '?form=' + form;
+        })
+        .getScriptUrl();
+    }
+  </script>
+</body>
+
+</html>
