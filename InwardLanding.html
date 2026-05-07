@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <base target="_top">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Choose Inward Flow | WMS</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+  <style>
+    body {
+      min-height: 100vh;
+      margin: 0;
+      display: grid;
+      place-items: center;
+      background: linear-gradient(135deg, #F8FAFC 0%, #E0F2FE 48%, #ECFDF5 100%);
+      font-family: "Inter", sans-serif;
+    }
+
+    .choice-card {
+      width: min(760px, calc(100vw - 32px));
+      border: 0;
+      border-radius: 22px;
+      box-shadow: 0 24px 80px rgba(15, 23, 42, 0.16);
+      overflow: hidden;
+    }
+
+    .choice-header {
+      padding: 28px 30px 12px;
+    }
+
+    .choice-title {
+      font-size: 1.55rem;
+      font-weight: 800;
+      color: #0F172A;
+      margin: 0;
+    }
+
+    .choice-subtitle {
+      color: #64748B;
+      margin: 8px 0 0;
+    }
+
+    .choice-body {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+      padding: 18px 30px 30px;
+    }
+
+    .flow-btn {
+      border: 1px solid #DDE7F0;
+      background: #fff;
+      border-radius: 18px;
+      padding: 22px;
+      text-align: left;
+      transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+      min-height: 155px;
+    }
+
+    .flow-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 18px 36px rgba(15, 23, 42, 0.12);
+      border-color: #38BDF8;
+    }
+
+    .flow-icon {
+      width: 46px;
+      height: 46px;
+      display: grid;
+      place-items: center;
+      border-radius: 14px;
+      margin-bottom: 14px;
+      color: #fff;
+      font-size: 1.2rem;
+    }
+
+    .pm .flow-icon {
+      background: #0EA5E9;
+    }
+
+    .rmfg .flow-icon {
+      background: #059669;
+    }
+
+    .flow-name {
+      display: block;
+      font-size: 1.12rem;
+      font-weight: 800;
+      color: #0F172A;
+    }
+
+    .flow-copy {
+      display: block;
+      color: #64748B;
+      margin-top: 6px;
+      font-size: 0.92rem;
+    }
+
+    .close-btn {
+      position: absolute;
+      top: 18px;
+      right: 18px;
+    }
+
+    @media (max-width: 640px) {
+      .choice-body {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <div class="choice-card card position-relative">
+    <button class="btn btn-sm btn-outline-secondary close-btn" onclick="goBack()">
+      <i class="fa-solid fa-xmark"></i>
+    </button>
+    <div class="choice-header">
+      <p class="choice-title">Select Inward Type</p>
+      <p class="choice-subtitle">Choose the material workflow before creating the inward receipt.</p>
+    </div>
+    <div class="choice-body">
+      <button type="button" class="flow-btn pm" onclick="openInward('pm')">
+        <span class="flow-icon"><i class="fa-solid fa-boxes-packing"></i></span>
+        <span class="flow-name">Packing Material (PM)</span>
+        <span class="flow-copy">Use label type and label name instead of Lot No.</span>
+      </button>
+      <button type="button" class="flow-btn rmfg" onclick="openInward('rmfg')">
+        <span class="flow-icon"><i class="fa-solid fa-industry"></i></span>
+        <span class="flow-name">RM / FG</span>
+        <span class="flow-copy">Open the existing inward receipt screen unchanged.</span>
+      </button>
+    </div>
+  </div>
+
+  <script>
+    let navInProgress = false;
+
+    function openInward(mode) {
+      if (navInProgress) return;
+      navInProgress = true;
+      google.script.run.withSuccessHandler(function (url) {
+        window.top.location.href = url + '?form=inward&mode=' + encodeURIComponent(mode);
+      }).getScriptUrl();
+    }
+
+    function goBack() {
+      if (navInProgress) return;
+      navInProgress = true;
+      google.script.run.withSuccessHandler(function (url) {
+        window.top.location.href = url + '?form=dashboard';
+      }).getScriptUrl();
+    }
+  </script>
+</body>
+
+</html>

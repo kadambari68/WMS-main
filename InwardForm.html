@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 
 <head>
@@ -482,17 +482,24 @@
 
     <!-- Row 1: Main Item Details -->
     <div class="row g-2 mb-2">
-      <div class="col-md-3">
+      <div class="col-md-2">
         <label class="form-label">Item Code</label>
         <input type="text" class="form-control item-input" placeholder="Scan or Type" required autocomplete="off">
       </div>
-      <div class="col-md-2">
+      <div class="col-md-3">
         <label class="form-label">Batch No</label>
-        <input type="text" class="form-control batch-input" placeholder="Batch" required>
+        <input type="text" class="form-control batch-input" placeholder="Type Batch No" required autocomplete="off">
+        <datalist class="batch-options-list"></datalist>
       </div>
-      <div class="col-md-2">
-        <label class="form-label">Lot No</label>
+      <div class="col-md-2 lot-field">
+        <label class="form-label lot-label">Lot No</label>
         <input type="text" class="form-control lot-input" placeholder="Lot">
+        <select class="form-select label-type-select d-none">
+          <option value="">Label...</option>
+          <option value="LATEST">Latest</option>
+          <option value="OBSOLETE">Obsolete</option>
+        </select>
+        <input type="text" class="form-control label-name-input d-none mt-1" placeholder="Label name e.g. LB001">
       </div>
       <div class="col-md-3">
         <label class="form-label qty-label">Quantity</label>
@@ -520,17 +527,22 @@
 
     <!-- Row 2: Storage & Expiry Details -->
     <div class="row g-2">
-      <div class="col-md-3">
+
+
+      <div class="col-md-5">
+        <label class="form-label">Item Name</label>
+        <input type="text" class="form-control item-name-input" placeholder="Item Name (Auto/Manual)">
+      </div>
+      <div class="col-md-2">
         <label class="form-label">Site</label>
         <select class="form-select site-select" onchange="loadLocationsForRow(this)" required>
           <option value="">Select Site...</option>
           <option value="Unit 1">Unit 1</option>
           <option value="Unit 2">Unit 2</option>
           <option value="Unit 3">Unit 3</option>
-          <option value="Warehouse">Warehouse</option>
         </select>
       </div>
-      <div class="col-md-3">
+      <div class="col-md-2">
         <label class="form-label">Location</label>
         <select class="form-select location-select" onchange="filterBinsForRow(this)" required disabled>
           <option value="">Select Location...</option>
@@ -542,10 +554,10 @@
           <option value="">Select Bin...</option>
         </select>
       </div>
-      <div class="col-md-3">
-        <label class="form-label">Expiry Date</label>
-        <input type="text" class="form-control expiry-input" placeholder="YYYY-MM-DD">
-      </div>
+
+
+
+
     </div>
     <div class="split-bin-toolbar">
       <button type="button" class="btn btn-sm btn-outline-secondary split-bin-btn">
@@ -593,7 +605,13 @@
     let binsData = [];
     let locationsMasterData = [];
     let allActiveUoms = ['KG'];
+    let transferStockCache = {};
+    let transferStockPending = {};
+    let batchOptionsCache = {};
+    let batchOptionsPending = {};
     let navInProgress = false;
+    const INWARD_MODE = '<?= inwardMode ?>';
+    const IS_PM_MODE = String(INWARD_MODE || '').toLowerCase() === 'pm';
 
     // Initialize
     document.addEventListener('DOMContentLoaded', function () {
@@ -603,14 +621,13 @@
     function loadInitialData() {
       google.script.run.withSuccessHandler(function (bins) {
         binsData = bins || [];
-        document.querySelectorAll('.item-row').forEach(function (row) {
-          updateSplitBinOptions(row);
-        });
+        refreshAllStorageRows();
         maybeAddFirstRow();
-      }).getBins();
+      }).getBinsFast();
 
       google.script.run.withSuccessHandler(function (locs) {
         locationsMasterData = locs || [];
+        refreshAllStorageRows();
         maybeAddFirstRow();
       }).getLocationsFromMaster();
 
@@ -630,14 +647,70 @@
     }
 
     function _extractAllUoms(uomInfo) {
-      const list = (uomInfo && Array.isArray(uomInfo.allUomOptions) && uomInfo.allUomOptions.length)
-        ? uomInfo.allUomOptions
-        : ((uomInfo && Array.isArray(uomInfo.uomOptions) && uomInfo.uomOptions.length)
-          ? uomInfo.uomOptions
+      const list = (uomInfo && Array.isArray(uomInfo.uomOptions) && uomInfo.uomOptions.length)
+        ? uomInfo.uomOptions
+        : ((uomInfo && Array.isArray(uomInfo.allUomOptions) && uomInfo.allUomOptions.length)
+          ? uomInfo.allUomOptions
           : ['KG']);
       return Array.from(new Set(list.map(function (x) {
         return String(x || '').trim().toUpperCase();
       }).filter(Boolean)));
+    }
+
+    function getTransferStockCached(itemCode, onSuccess, onFailure) {
+      const code = String(itemCode || '').trim().toUpperCase();
+      if (!code) { onSuccess([]); return; }
+      if (Object.prototype.hasOwnProperty.call(transferStockCache, code)) {
+        onSuccess(transferStockCache[code] || []);
+        return;
+      }
+      if (transferStockPending[code]) {
+        transferStockPending[code].push({ onSuccess: onSuccess, onFailure: onFailure });
+        return;
+      }
+      transferStockPending[code] = [{ onSuccess: onSuccess, onFailure: onFailure }];
+      google.script.run
+        .withSuccessHandler(function (rows) {
+          const list = Array.isArray(rows) ? rows : [];
+          transferStockCache[code] = list;
+          const waiters = transferStockPending[code] || [];
+          delete transferStockPending[code];
+          waiters.forEach(function (w) { if (w.onSuccess) w.onSuccess(list); });
+        })
+        .withFailureHandler(function (err) {
+          const waiters = transferStockPending[code] || [];
+          delete transferStockPending[code];
+          waiters.forEach(function (w) { if (w.onFailure) w.onFailure(err); });
+        })
+        .getTransferStockByItemCode(code);
+    }
+
+    function getBatchOptionsCached(itemCode, onSuccess, onFailure) {
+      const code = String(itemCode || '').trim().toUpperCase();
+      if (!code) { onSuccess([]); return; }
+      if (Object.prototype.hasOwnProperty.call(batchOptionsCache, code)) {
+        onSuccess(batchOptionsCache[code] || []);
+        return;
+      }
+      if (batchOptionsPending[code]) {
+        batchOptionsPending[code].push({ onSuccess: onSuccess, onFailure: onFailure });
+        return;
+      }
+      batchOptionsPending[code] = [{ onSuccess: onSuccess, onFailure: onFailure }];
+      google.script.run
+        .withSuccessHandler(function (batches) {
+          const list = Array.isArray(batches) ? batches : [];
+          batchOptionsCache[code] = list;
+          const waiters = batchOptionsPending[code] || [];
+          delete batchOptionsPending[code];
+          waiters.forEach(function (w) { if (w.onSuccess) w.onSuccess(list); });
+        })
+        .withFailureHandler(function (err) {
+          const waiters = batchOptionsPending[code] || [];
+          delete batchOptionsPending[code];
+          waiters.forEach(function (w) { if (w.onFailure) w.onFailure(err); });
+        })
+        .getBatchesForItem(code);
     }
 
     function applyGlobalUomOptionsToRows() {
@@ -707,6 +780,64 @@
       applyDeadStockModeToRows();
     }
 
+    function getPmLabelLotValue(row) {
+      const type = String(((row.querySelector('.label-type-select') || {}).value) || '').trim().toUpperCase();
+      const name = String(((row.querySelector('.label-name-input') || {}).value) || '').trim();
+      if (!type) throw new Error('Label Type is required for Packing Material inward.');
+      if (type === 'LATEST' && !name) throw new Error('Label Name is required when Label Type is Latest.');
+      return type === 'LATEST' ? ('LATEST: ' + name) : 'OBSOLETE';
+    }
+
+    function applyInwardModeToRow(row) {
+      if (!row) return;
+      const lotLabel = row.querySelector('.lot-label');
+      const lotInput = row.querySelector('.lot-input');
+      const labelSelect = row.querySelector('.label-type-select');
+      const labelName = row.querySelector('.label-name-input');
+
+      if (!IS_PM_MODE) {
+        if (lotLabel) lotLabel.textContent = 'Lot No';
+        if (lotInput) lotInput.classList.remove('d-none');
+        if (labelSelect) {
+          labelSelect.classList.add('d-none');
+          labelSelect.required = false;
+        }
+        if (labelName) {
+          labelName.classList.add('d-none');
+          labelName.required = false;
+        }
+        return;
+      }
+
+      if (lotLabel) lotLabel.textContent = 'Label Type';
+      if (lotInput) {
+        lotInput.classList.add('d-none');
+        lotInput.required = false;
+      }
+      if (labelSelect) {
+        labelSelect.classList.remove('d-none');
+        labelSelect.required = !isReturnMode();
+        labelSelect.disabled = isReturnMode();
+        if (!labelSelect.dataset.pmWired) {
+          labelSelect.dataset.pmWired = '1';
+          labelSelect.addEventListener('change', function () {
+            const latest = String(this.value || '').toUpperCase() === 'LATEST';
+            if (labelName) {
+              labelName.classList.toggle('d-none', !latest);
+              labelName.required = latest && !isReturnMode();
+              if (!latest) labelName.value = '';
+            }
+          });
+        }
+      }
+      if (labelName) {
+        const latest = labelSelect && String(labelSelect.value || '').toUpperCase() === 'LATEST';
+        labelName.classList.toggle('d-none', !latest);
+        labelName.required = latest && !isReturnMode();
+        labelName.disabled = isReturnMode();
+      }
+    }
+
     function applyReceiptModeToRow(row) {
       if (!row) return;
       const returnMode = isReturnMode();
@@ -750,6 +881,7 @@
         const splitBtn = row.querySelector('.split-bin-btn');
         if (splitBtn) splitBtn.disabled = isDeadStockMode();
       }
+      applyInwardModeToRow(row);
       applyDeadStockModeToRow(row);
     }
 
@@ -798,14 +930,33 @@
 
       // Attach version lookup on blur (fires when user leaves the item code field)
       const itemInput = newRow.querySelector('.item-input');
+      const batchInput = newRow.querySelector('.batch-input');
+      const batchList = newRow.querySelector('.batch-options-list');
       const uomSelect = newRow.querySelector('.uom-select');
+      if (batchInput && batchList) {
+        const listId = 'batchList_' + itemCount + '_' + Date.now();
+        batchList.id = listId;
+        batchInput.setAttribute('list', listId);
+      }
       itemInput.addEventListener('blur', function () {
-        lookupVersionForRow(this);
+        const currentCode = String(this.value || '').trim().toUpperCase();
+        if (newRow.dataset.lastLoadedItemCode === currentCode) return;
+        newRow.dataset.lastLoadedItemCode = currentCode;
+        lookupVersionAndNameForRow(this);
         lookupUomForRow(this);
+        populateBatchOptionsForRow(newRow);
       });
       itemInput.addEventListener('input', function () {
         clearVersionBanner(itemInput.closest('.item-row'));
       });
+      if (batchInput) {
+        batchInput.addEventListener('change', function () {
+          autofillStorageForBatch(newRow);
+        });
+        batchInput.addEventListener('blur', function () {
+          autofillStorageForBatch(newRow);
+        });
+      }
       if (uomSelect) {
         setUomOptions(uomSelect, allActiveUoms, String(uomSelect.value || allActiveUoms[0] || 'KG').trim().toUpperCase());
         applyQtyUomToRow(newRow, String(uomSelect.value || allActiveUoms[0] || 'KG').trim().toUpperCase());
@@ -830,12 +981,144 @@
       if (row) row.remove();
     }
 
+    function resetBatchOptionsForRow(row) {
+      const batchInput = row && row.querySelector('.batch-input');
+      const batchList = row && row.querySelector('.batch-options-list');
+      if (batchInput) batchInput.value = '';
+      if (batchList) batchList.innerHTML = '';
+    }
+
+    function clearStorageSelectionForRow(row) {
+      if (!row) return;
+      row._batchStorageMatches = [];
+      row.dataset.prefSite = '';
+      row.dataset.prefLocation = '';
+      row.dataset.prefBinId = '';
+      const siteSelect = row.querySelector('.site-select');
+      const locSelect = row.querySelector('.location-select');
+      const binSelect = row.querySelector('.bin-select');
+      if (siteSelect) siteSelect.value = '';
+      if (locSelect) {
+        locSelect.innerHTML = '<option value="">Select Location...</option>';
+        locSelect.value = '';
+        locSelect.disabled = true;
+      }
+      if (binSelect) {
+        binSelect.innerHTML = '<option value="">Select Bin...</option>';
+        binSelect.value = '';
+        binSelect.disabled = true;
+      }
+      updateSplitBinOptions(row);
+      updateSplitTotals(row);
+    }
+
+    function populateBatchOptionsForRow(row) {
+      if (!row) return;
+      const itemInput = row.querySelector('.item-input');
+      const batchInput = row.querySelector('.batch-input');
+      const batchList = row.querySelector('.batch-options-list');
+      const itemCode = String((itemInput || {}).value || '').trim();
+      if (!batchInput || !batchList) return;
+
+      resetBatchOptionsForRow(row);
+      clearStorageSelectionForRow(row);
+      if (!itemCode) return;
+
+      getBatchOptionsCached(itemCode, function (batches) {
+          const list = Array.isArray(batches) ? batches : [];
+          batchList.innerHTML = '';
+          list.forEach(function (batchNo) {
+            const opt = document.createElement('option');
+            opt.value = String(batchNo || '').trim();
+            batchList.appendChild(opt);
+          });
+
+          if (list.length === 1) {
+            batchInput.value = String(list[0] || '').trim();
+            autofillStorageForBatch(row);
+          }
+        }, function () {
+          resetBatchOptionsForRow(row);
+        });
+    }
+
+    function applyStorageMatchToRow(row, match) {
+      if (!row || !match || isDeadStockMode()) return;
+      row.dataset.prefSite = String(match.site || '').trim();
+      row.dataset.prefLocation = String(match.location || '').trim();
+      row.dataset.prefBinId = String(match.binId || '').trim();
+      reconcileStorageRow(row);
+    }
+
+    function getBatchStorageMatchesForRow(row) {
+      return Array.isArray(row && row._batchStorageMatches) ? row._batchStorageMatches : [];
+    }
+
+    function autofillStorageForBatch(row) {
+      if (!row || isDeadStockMode()) return;
+      const itemCode = String((row.querySelector('.item-input') || {}).value || '').trim();
+      const batchNo = String((row.querySelector('.batch-input') || {}).value || '').trim();
+      if (!itemCode || !batchNo) {
+        clearStorageSelectionForRow(row);
+        return;
+      }
+
+      getTransferStockCached(itemCode, function (rows) {
+          const matches = (rows || []).filter(function (r) {
+            const selected = batchNo.toUpperCase();
+            const candidateId = String((r && r.batchId) || '').trim().toUpperCase();
+            const candidateNo = String((r && r.batchNumber) || '').trim().toUpperCase();
+            return candidateId === selected || candidateNo === selected;
+          });
+          row._batchStorageMatches = matches;
+          if (!matches.length) {
+            row.dataset.prefSite = '';
+            row.dataset.prefLocation = '';
+            row.dataset.prefBinId = '';
+            return;
+          }
+          applyStorageMatchToRow(row, matches[0]);
+        }, function () { });
+    }
+
+    function reconcileStorageRow(row) {
+      if (!row || isDeadStockMode()) return;
+      const siteSelect = row.querySelector('.site-select');
+      const locSelect = row.querySelector('.location-select');
+      const binSelect = row.querySelector('.bin-select');
+      if (!siteSelect || !locSelect || !binSelect) return;
+
+      const preferredSite = String(row.dataset.prefSite || siteSelect.value || '').trim();
+      const preferredLocation = String(row.dataset.prefLocation || locSelect.value || '').trim();
+      const preferredBinId = String(row.dataset.prefBinId || binSelect.value || '').trim();
+
+      if (preferredSite) siteSelect.value = preferredSite;
+      loadLocationsForRow(siteSelect);
+
+      if (preferredLocation && Array.from(locSelect.options).some(function (o) { return o.value === preferredLocation; })) {
+        locSelect.value = preferredLocation;
+      }
+      filterBinsForRow(locSelect);
+
+      if (preferredBinId && Array.from(binSelect.options).some(function (o) { return o.value === preferredBinId; })) {
+        binSelect.value = preferredBinId;
+      }
+      updateSplitBinOptions(row);
+      updateSplitTotals(row);
+    }
+
+    function refreshAllStorageRows() {
+      document.querySelectorAll('.item-row').forEach(function (row) {
+        reconcileStorageRow(row);
+      });
+    }
+
     /**
      * Called when user leaves the Item Code field.
      * Calls getNextVersionForItemCode() on the server (read-only).
      * Updates the version-input in the same row with the result.
      */
-    function lookupVersionForRow(itemInput) {
+    function lookupVersionAndNameForRow(itemInput) {
       const row     = itemInput.closest('.item-row');
       const vInput  = row.querySelector('.version-input');
       const vHint   = row.querySelector('.version-hint');
@@ -866,13 +1149,15 @@
       vHint.title = '';
 
       google.script.run
-        .withSuccessHandler(function (nextVersion) {
+        .withSuccessHandler(function (details) {
           vInput.disabled = false;
-          vInput.value    = nextVersion;
+          vInput.value    = details.version;
           vInput.className = 'form-control version-input auto-filled';
-          vInput.placeholder = nextVersion || 'V1';
+          vInput.placeholder = details.version || 'V1';
+          const nameInput = row.querySelector('.item-name-input');
+          if (details.name && nameInput) nameInput.value = details.name;
 
-          if (nextVersion === 'V1') {
+          if (details.version === 'V1') {
             vHint.textContent = 'New item';
             vHint.className = 'version-hint new';
             return;
@@ -885,11 +1170,11 @@
             .withSuccessHandler(function (warn) {
               if (warn && warn.message) {
                 // Short status in the narrow column hint
-                vHint.textContent = nextVersion + ' — older stock on shelves ↓';
+                vHint.textContent = details.version + ' — older stock on shelves ↓';
                 vHint.className   = 'version-hint found';
                 vHint.title       = '';
                 // Full detail in the full-width banner below the row
-                renderVersionBanner(row, warn, nextVersion);
+                renderVersionBanner(row, warn, details.version);
               } else {
                 vHint.textContent = 'Previous stock found';
                 vHint.className   = 'version-hint found';
@@ -900,7 +1185,7 @@
               vHint.textContent = 'Previous stock found';
               vHint.title = '';
             })
-            .getVersionInwardWarning(code, nextVersion);
+            .getVersionInwardWarning(code, details.version);
         })
         .withFailureHandler(function (err) {
           vInput.disabled    = false;
@@ -912,7 +1197,7 @@
           vHint.title = '';
           console.warn('Version lookup failed:', err);
         })
-        .getNextVersionForItemCode(code);
+        .getInwardItemDetails(code);
     }
 
     // ── Version shelf banner renderer ─────────────────────────────────────
@@ -989,8 +1274,11 @@
           const uom = (uomInfo && uomInfo.uomCode) ? String(uomInfo.uomCode).trim() : 'KG';
           const opts = _extractAllUoms(uomInfo);
           if (opts.length) allActiveUoms = opts;
-          const keep = String((uomSelect && uomSelect.value) || '').trim().toUpperCase();
-          const preferred = (keep && opts.indexOf(keep) >= 0) ? keep : uom;
+          // Only preserve existing selection if user already picked one manually
+          // (detected by: select has > 1 option AND value differs from default 'KG')
+          const existingVal = String((uomSelect && uomSelect.value) || '').trim().toUpperCase();
+          const userChose = uomSelect && uomSelect.options.length > 1 && existingVal && existingVal !== uom;
+          const preferred = userChose ? existingVal : uom;   // item's baseUom wins on first load
           setUomOptions(uomSelect, opts, preferred);
           applyQtyUomToRow(row, (uomSelect && uomSelect.value) ? uomSelect.value : uom);
           if (qtyInput) qtyInput.placeholder = 'Qty';
@@ -1050,6 +1338,31 @@
       });
     }
 
+    function formatInwardBinLabel(bin) {
+      const code = String((bin && (bin.displayLabel || bin.binCode || bin.binId)) || '').trim();
+      if (!bin) return code;
+      if (String(bin.displayLabel || '').trim()) return String(bin.displayLabel).trim();
+      const uom = String(bin.capacityUom || '').trim().toUpperCase();
+      return uom ? (code + ' (' + uom + ')') : code;
+    }
+
+    function populateMainBinSelect(selectEl, row, preferredBinId) {
+      if (!selectEl || !row) return;
+      const bins = getBinsForRow(row);
+      const keep = String(preferredBinId || selectEl.value || '').trim();
+      selectEl.innerHTML = '<option value="">Select Bin...</option>';
+      bins.forEach(function (bin) {
+        const opt = document.createElement('option');
+        opt.value = String(bin.binId || '').trim();
+        opt.textContent = formatInwardBinLabel(bin);
+        selectEl.appendChild(opt);
+      });
+      if (keep && Array.from(selectEl.options).some(function (o) { return o.value === keep; })) {
+        selectEl.value = keep;
+      }
+      selectEl.disabled = bins.length === 0;
+    }
+
     function populateSplitBinSelect(selectEl, row, preferredBinId) {
       if (!selectEl || !row) return;
       const bins = getBinsForRow(row);
@@ -1060,7 +1373,8 @@
         const cap = Number(bin.maxCapacity || 0);
         const cur = Number(bin.currentUsage || 0);
         const capTxt = cap > 0 ? (' [' + cur.toFixed(2) + '/' + cap.toFixed(2) + ' ' + (bin.capacityUom || 'KG') + ']') : '';
-        opt.textContent = String(bin.binCode || bin.binId || '').trim() + capTxt;
+        const warnTxt = bin.capacityWarning ? (' {' + String(bin.capacityWarning || '').trim() + '}') : '';
+        opt.textContent = formatInwardBinLabel(bin) + capTxt + warnTxt;
         selectEl.appendChild(opt);
       });
       if (preferredBinId && Array.from(selectEl.options).some(function (o) { return o.value === preferredBinId; })) {
@@ -1100,15 +1414,25 @@
       const current = Number(bin.currentUsage || 0);
       const max = Number(bin.maxCapacity || 0);
       const planned = Number((plannedByBin && plannedByBin[binId]) || 0);
-      const projected = current + planned;
+      const rowUom = String(((row.querySelector('.uom-select') || {}).value) || 'KG').trim().toUpperCase() || 'KG';
+      const capacityUom = String(bin.capacityUom || 'KG').trim().toUpperCase() || 'KG';
+      const sameUom = rowUom === capacityUom;
+      const projected = current + (sameUom ? planned : 0);
       let pct = 0;
       if (max > 0) pct = Math.max(0, Math.min(100, (projected / max) * 100));
       fill.style.width = pct.toFixed(1) + '%';
       fill.className = 'capacity-fill ' + (pct >= 90 ? 'danger' : (pct >= 70 ? 'warn' : 'ok'));
       if (max > 0) {
-        txt.textContent = 'Projected: ' + projected.toFixed(2) + ' / ' + max.toFixed(2) + ' ' + (bin.capacityUom || 'KG');
+        if (sameUom) {
+          txt.textContent = 'Projected: ' + projected.toFixed(2) + ' / ' + max.toFixed(2) + ' ' + capacityUom +
+            (bin.capacityWarning ? (' | ' + String(bin.capacityWarning || '').trim()) : '');
+        } else {
+          txt.textContent = 'Current: ' + current.toFixed(2) + ' / ' + max.toFixed(2) + ' ' + capacityUom +
+            ' | Entered qty in ' + rowUom + ' | Final check on submit' +
+            (bin.capacityWarning ? (' | ' + String(bin.capacityWarning || '').trim()) : '');
+        }
       } else {
-        txt.textContent = 'Capacity not configured';
+        txt.textContent = bin.capacityWarning ? String(bin.capacityWarning || '').trim() : 'Capacity not configured';
       }
     }
 
@@ -1260,8 +1584,9 @@
         return;
       }
 
-      const filtered = locationsMasterData.filter(l => l.site === site);
-      filtered.forEach(l => {
+      locationsMasterData
+        .filter(function (l) { return l.site === site; })
+        .forEach(function (l) {
         const opt = document.createElement('option');
         opt.value = l.location;
         opt.textContent = l.location;
@@ -1274,28 +1599,8 @@
 
     function filterBinsForRow(locSelect) {
       const row = locSelect.closest('.item-row');
-      const siteSelect = row.querySelector('.site-select');
       const binSelect = row.querySelector('.bin-select');
-      const site = siteSelect.value;
-      const location = locSelect.value;
-
-      binSelect.innerHTML = '<option value="">Select Bin...</option>';
-      if (!location) {
-        binSelect.disabled = true;
-        updateSplitBinOptions(row);
-        updateSplitTotals(row);
-        return;
-      }
-
-      binsData.forEach(bin => {
-        if (bin.location === location && bin.site === site) {
-          const opt = document.createElement('option');
-          opt.value = bin.binId;
-          opt.textContent = bin.binCode;
-          binSelect.appendChild(opt);
-        }
-      });
-      binSelect.disabled = false;
+      populateMainBinSelect(binSelect, row);
       updateSplitBinOptions(row);
       updateSplitTotals(row);
     }
@@ -1327,7 +1632,7 @@
           const locSelect = row.querySelector('.location-select');
           const batchNo = row.querySelector('.batch-input').value.trim();
           if (!batchNo) throw new Error('Batch No is required.');
-          const lotNoValue = type === 'RETURN' ? '' : row.querySelector('.lot-input').value.trim();
+          const lotNoValue = type === 'RETURN' ? '' : (IS_PM_MODE ? getPmLabelLotValue(row) : row.querySelector('.lot-input').value.trim());
           const versionValue = type === 'RETURN' ? '' : (row.querySelector('.version-input').value.trim() || 'V1');
           var qtyInp = row.querySelector('.qty-input');
           const lineQty = Number(qtyInp.value);
@@ -1363,15 +1668,19 @@
             throw new Error('Please select a bin or enable split bins.');
           }
 
+          const expiryInput = row.querySelector('.expiry-input');
+
           items.push({
             itemCode: row.querySelector('.item-input').value.trim(),
             batchNumber: batchNo,
             lotNo: lotNoValue,
+            pmLabelType: IS_PM_MODE ? String(((row.querySelector('.label-type-select') || {}).value) || '').trim().toUpperCase() : '',
+            pmLabelName: IS_PM_MODE ? String(((row.querySelector('.label-name-input') || {}).value) || '').trim() : '',
             version: versionValue,
             quantity: lineQty,
             uom: String((row.querySelector('.uom-select') || {}).value || qtyInp.dataset.uom || 'KG'),
             binId: splitEnabled ? '' : selectedBin,
-            expiryDate: row.querySelector('.expiry-input').value,
+            expiryDate: expiryInput ? expiryInput.value : '',
             location: locSelect.value,
             site: siteSelect.value,
             binSplits: splitEnabled ? binSplits : []
@@ -1383,10 +1692,7 @@
       }
 
       if (type === 'PURCHASE') {
-        google.script.run
-          .withSuccessHandler(onSuccess)
-          .withFailureHandler(onFailure)
-          .submitInwardV2({ ginNo, items, remarks });
+        submitPurchaseInward({ ginNo, items, remarks, inwardMode: IS_PM_MODE ? 'pm' : 'rmfg' }, 0);
       } else {
         // FIX: Single atomic call with all items (was: concurrent Promise.all which breaks script locks)
         // FIX: Pass refNote so "Return Ref / Note" is now saved to Inventory GIN_NO and Movement log
@@ -1404,11 +1710,25 @@
       }
     }
 
+    function submitPurchaseInward(payload, attempt) {
+      google.script.run
+        .withSuccessHandler(onSuccess)
+        .withFailureHandler(function (err) {
+          const message = String((err && err.message) || err || '');
+          if (message.indexOf('System is busy') >= 0 && attempt < 2) {
+            setTimeout(function () {
+              submitPurchaseInward(payload, attempt + 1);
+            }, 1200);
+            return;
+          }
+          onFailure(err);
+        })
+        .submitInwardV2(payload);
+    }
+
     function onSuccess(result) {
       document.getElementById('submitBtn').disabled = false;
       document.getElementById('loading').classList.add('d-none');
-
-      google.script.run.clearDashboardCache();
 
       const type = document.getElementById('receiptType').value;
       if (type === 'RETURN' && result && result.returned) {
@@ -1432,7 +1752,8 @@
     }
 
     function onFailure(err) {
-      alert('Error: ' + err.message);
+      const message = String((err && err.message) || err || 'Unknown error');
+      alert('Error: ' + message);
       document.getElementById('submitBtn').disabled = false;
       document.getElementById('loading').classList.add('d-none');
     }

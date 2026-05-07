@@ -45,6 +45,24 @@
         .qa-qty {
             max-width: 170px;
         }
+
+        .pending-item.is-updating {
+            opacity: 0.65;
+            pointer-events: none;
+        }
+
+        .toast-msg {
+            position: fixed;
+            top: 18px;
+            right: 18px;
+            z-index: 9999;
+            border-radius: 10px;
+            padding: 10px 14px;
+            background: #064E3B;
+            color: #fff;
+            box-shadow: 0 8px 20px rgba(15, 23, 42, 0.2);
+            font-weight: 600;
+        }
     </style>
 </head>
 
@@ -99,20 +117,9 @@
   const loading = document.getElementById('loading');
   if (loading) loading.classList.remove('d-none');
   
-  console.log('[QA_UI] Calling getQaInventoryView...');
-  
   google.script.run
     .withSuccessHandler(function (items) {
-      console.log('[QA_UI] Success handler called');
-      console.log('[QA_UI] Raw response:', items);
-      console.log('[QA_UI] Response constructor:', items ? items.constructor.name : 'null');
-      console.log('[QA_UI] Type:', typeof items);
-      console.log('[QA_UI] Is Array:', Array.isArray(items));
-      console.log('[QA_UI] Keys:', items ? Object.keys(items) : 'N/A');
-      console.log('[QA_UI] Length:', items ? items.length : 'N/A');
-      
       if (token !== screenToken) {
-        console.log('[QA_UI] Token mismatch, ignoring');
         return;
       }
       
@@ -124,8 +131,6 @@
       }
       
       const normalized = normalizeItems(items);
-      console.log('[QA_UI] After normalization:', normalized);
-      console.log('[QA_UI] Normalized length:', normalized.length);
       
       if (!Array.isArray(normalized)) {
         console.error('[QA_UI] CRITICAL: Normalized result is not an array', normalized);
@@ -196,21 +201,21 @@
                 let actions = '';
                 if (status === 'OVERRIDDEN') {
                     actions = `
-                      <button class="btn btn-outline-dark btn-sm" onclick="updateStatus('${safeItem.inventoryId}', 'CLOSED')">
+                      <button class="btn btn-outline-dark btn-sm" onclick="updateStatus('${safeItem.inventoryId}', 'CLOSED', '${safeItem.rowIndex || ''}')">
                         <i class="fa-solid fa-lock me-1"></i>Close
                       </button>`;
                 } else if (status !== 'CLOSED') {
                     actions = `
-                      <button class="btn btn-approve btn-sm me-2" onclick="updateStatus('${safeItem.inventoryId}', 'APPROVED')">
+                      <button class="btn btn-approve btn-sm me-2" onclick="updateStatus('${safeItem.inventoryId}', 'APPROVED', '${safeItem.rowIndex || ''}')">
                         <i class="fa-solid fa-check me-1"></i>Approve
                       </button>
-                      <button class="btn btn-reject btn-sm" onclick="updateStatus('${safeItem.inventoryId}', 'REJECTED')">
+                      <button class="btn btn-reject btn-sm" onclick="updateStatus('${safeItem.inventoryId}', 'REJECTED', '${safeItem.rowIndex || ''}')">
                         <i class="fa-solid fa-times me-1"></i>Reject
                       </button>`;
                 }
 
                 html += `
-          <div class="pending-item" id="item-${safeItem.inventoryId}">
+          <div class="pending-item" id="item-${safeItem.inventoryId}" data-row-index="${safeItem.rowIndex || ''}">
             <div class="row align-items-center">
               <div class="col-md-6">
                 <strong>${safeItem.itemCode || ''}</strong> - Batch: ${safeItem.batchId || ''}<br>
@@ -234,27 +239,97 @@
             container.innerHTML = html;
         }
 
-        function updateStatus(inventoryId, status) {
+        function updateStatus(inventoryId, status, rowIndex) {
             const remarks = prompt(`Enter remarks for ${status}:`);
             if (remarks === null) return; // Cancelled
             const dateInput = document.getElementById('qa-date-' + inventoryId);
             const qualityDate = dateInput ? dateInput.value : '';
             const qtyInput = document.getElementById('qa-approve-qty-' + inventoryId);
             const approvedQty = (status === 'APPROVED' && qtyInput && qtyInput.value !== '') ? Number(qtyInput.value) : null;
+            const payload = {
+                inventoryId: inventoryId,
+                newStatus: status,
+                rowIndex: Number(rowIndex) || null,
+                remarks: remarks,
+                qualityDate: qualityDate,
+                approvedQty: approvedQty
+            };
 
+            submitQaStatusUpdate(payload, status, 0);
+        }
+
+        function submitQaStatusUpdate(payload, status, attempt) {
+            markQaCardUpdating(payload.inventoryId, status);
             google.script.run
-                .withSuccessHandler(() => {
-                    loadItems(screenToken);
-                    alert(`Status updated to ${status}`);
+                .withSuccessHandler((result) => {
+                    markQaCardDone(payload.inventoryId, status, result);
                 })
-                .withFailureHandler(err => alert('Error: ' + err.message))
-                .updateQualityStatus({
-                    inventoryId: inventoryId,
-                    newStatus: status,
-                    remarks: remarks,
-                    qualityDate: qualityDate,
-                    approvedQty: approvedQty
-                });
+                .withFailureHandler(err => {
+                    const message = String((err && err.message) || err || 'Unknown error');
+                    if (message.indexOf('System is busy') >= 0 && attempt < 2) {
+                        setTimeout(function () {
+                            submitQaStatusUpdate(payload, status, attempt + 1);
+                        }, 1200);
+                        return;
+                    }
+                    markQaCardIdle(payload.inventoryId);
+                    alert('Error: ' + message);
+                })
+                .updateQualityStatus(payload);
+        }
+
+        function markQaCardUpdating(inventoryId, status) {
+            const card = document.getElementById('item-' + inventoryId);
+            if (!card) return;
+            card.classList.add('is-updating');
+            card.querySelectorAll('button').forEach(btn => btn.disabled = true);
+            const badge = card.querySelector('.badge.ms-2');
+            if (badge) {
+                badge.className = 'badge bg-info ms-2';
+                badge.textContent = 'Updating...';
+            }
+        }
+
+        function markQaCardIdle(inventoryId) {
+            const card = document.getElementById('item-' + inventoryId);
+            if (!card) return;
+            card.classList.remove('is-updating');
+            card.querySelectorAll('button').forEach(btn => btn.disabled = false);
+        }
+
+        function markQaCardDone(inventoryId, status, result) {
+            const card = document.getElementById('item-' + inventoryId);
+            showToast((result && result.message) || ('Status updated to ' + status));
+            if (!card) return;
+
+            if (status === 'APPROVED' || status === 'REJECTED' || status === 'CLOSED') {
+                card.remove();
+            } else {
+                card.classList.remove('is-updating');
+                const badge = card.querySelector('.badge.ms-2');
+                if (badge) {
+                    badge.className = status === 'HOLD' ? 'badge bg-danger ms-2' : 'badge bg-secondary ms-2';
+                    badge.textContent = status;
+                }
+                card.querySelectorAll('button').forEach(btn => btn.disabled = false);
+            }
+
+            const container = document.getElementById('itemsContainer');
+            if (container && !container.querySelector('.pending-item')) {
+                container.innerHTML = '<div class="alert alert-success"><strong>All Clear!</strong> No inventory rows to review.</div>';
+            }
+        }
+
+        function showToast(message) {
+            const existing = document.querySelector('.toast-msg');
+            if (existing) existing.remove();
+            const toast = document.createElement('div');
+            toast.className = 'toast-msg';
+            toast.textContent = message;
+            document.body.appendChild(toast);
+            setTimeout(function () {
+                if (toast && toast.parentNode) toast.parentNode.removeChild(toast);
+            }, 1800);
         }
 
         function toDateInputValue(value) {

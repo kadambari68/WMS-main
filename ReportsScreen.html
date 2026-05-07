@@ -71,16 +71,28 @@
       background: #f9fafb;
     }
 
-    .tabs {
+    .tabs,
+    .subtabs {
       background: white;
       padding: 0;
-      border-radius: 12px 12px 0 0;
       box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
       display: flex;
       overflow-x: auto;
     }
 
-    .tab {
+    .tabs {
+      border-radius: 12px 12px 0 0;
+    }
+
+    .subtabs {
+      border-radius: 12px;
+      margin-bottom: 20px;
+      border: 1px solid #e5e7eb;
+      box-shadow: none;
+    }
+
+    .tab,
+    .subtab {
       flex: 1;
       min-width: 150px;
       padding: 16px 20px;
@@ -93,12 +105,14 @@
       transition: all 0.2s;
     }
 
-    .tab:hover {
+    .tab:hover,
+    .subtab:hover {
       background: #f9fafb;
       color: #111827;
     }
 
-    .tab.active {
+    .tab.active,
+    .subtab.active {
       color: #667eea;
       border-bottom-color: #667eea;
       background: #f9fafb;
@@ -112,11 +126,13 @@
       min-height: 500px;
     }
 
-    .report-section {
+    .report-section,
+    .stock-view {
       display: none;
     }
 
-    .report-section.active {
+    .report-section.active,
+    .stock-view.active {
       display: block;
     }
 
@@ -138,6 +154,36 @@
     .report-actions {
       display: flex;
       gap: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .filters-bar {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      background: #f1f5f9;
+      padding: 10px 15px;
+      border-radius: 8px;
+    }
+
+    .filter-select, .filter-input, .search-box {
+      padding: 8px 12px;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      font-size: 13px;
+      outline: none;
+    }
+
+    .filter-select:focus, .filter-input:focus, .search-box:focus {
+      border-color: #3b82f6;
+      box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
+    }
+
+    .section-note {
+      margin-bottom: 18px;
+      color: #6b7280;
+      font-size: 14px;
     }
 
     .stats-grid {
@@ -287,10 +333,98 @@
       font-size: 14px;
     }
 
-    .search-box:focus {
+    .search-box:focus,
+    .filter-input:focus,
+    .filter-select:focus {
       outline: none;
       border-color: #667eea;
       box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+    }
+
+    .filters-bar {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .filter-input,
+    .filter-select {
+      padding: 10px 12px;
+      border: 1px solid #d1d5db;
+      border-radius: 8px;
+      font-size: 14px;
+      background: white;
+      color: #111827;
+    }
+
+    .table-wrap {
+      overflow-x: auto;
+    }
+
+    .low-stock-table {
+      table-layout: fixed;
+      min-width: 780px;
+    }
+
+    .low-stock-table th,
+    .low-stock-table td {
+      vertical-align: middle;
+    }
+
+    .low-stock-table .col-code {
+      width: 34%;
+    }
+
+    .low-stock-table .col-number {
+      width: 13%;
+      text-align: right;
+    }
+
+    .low-stock-table .col-severity {
+      width: 12%;
+      text-align: left;
+    }
+
+    .low-stock-table .num-cell {
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+
+    .low-stock-table .deficit-cell {
+      color: #ef4444;
+      font-weight: 700;
+    }
+
+    .low-stock-item-code {
+      font-weight: 800;
+      color: #111827;
+    }
+
+    .low-stock-item-name {
+      margin-top: 3px;
+      color: #64748b;
+      font-size: 12px;
+      line-height: 1.35;
+      white-space: normal;
+    }
+
+    @media (max-width: 768px) {
+      .report-header {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 12px;
+      }
+
+      .report-actions,
+      .filters-bar {
+        width: 100%;
+      }
+
+      .search-box {
+        max-width: 100%;
+      }
     }
   </style>
 </head>
@@ -303,61 +437,163 @@
 
   <div class="nav-buttons">
     <button class="btn btn-primary" onclick="navTo('warehouse_dashboard')">Dashboard</button>
-    <button class="btn btn-secondary" onclick="navTo('warehouse_layout')">Layout</button>
     <button class="btn btn-secondary" onclick="refreshAllReports()">Refresh All</button>
   </div>
 
   <div class="tabs">
-    <button class="tab active" onclick="switchTab('deadstock')">Dead Stock</button>
-    <button class="tab" onclick="switchTab('rejected')">Rejected Items</button>
-    <button class="tab" onclick="switchTab('expired')">Expired Stock</button>
-    <button class="tab" onclick="switchTab('expiring')">Expiring Soon</button>
-    <button class="tab" onclick="switchTab('lowstock')">Low Stock</button>
+    <button class="tab active" onclick="switchMainTab('stock', this)">Stock</button>
+    <button class="tab" onclick="switchMainTab('rejected', this)">Rejected Items</button>
+    <button class="tab" onclick="switchMainTab('materialmovement', this)">Material Movement</button>
   </div>
 
   <div class="report-container">
-    <!-- Dead Stock Report -->
-    <div id="report-deadstock" class="report-section active">
-      <div class="report-header">
-        <div class="report-title">Dead Stock Report</div>
-        <div class="report-actions">
-          <input type="text" class="search-box" id="search-deadstock" placeholder="Search..."
-            oninput="filterTable('deadstock')">
-          <button class="btn btn-secondary" onclick="loadDeadStockReport()">Refresh</button>
+    <div id="report-stock" class="report-section active">
+      <div class="section-note">Stock brings together dead stock, expired stock, expiring soon, and low stock in one place.</div>
+
+      <div class="subtabs">
+        <button class="subtab active" onclick="switchStockView('deadstock', this)">Dead Stock</button>
+        <button class="subtab" onclick="switchStockView('expired', this)">Expired Stock</button>
+        <button class="subtab" onclick="switchStockView('expiring', this)">Expiring Soon</button>
+        <button class="subtab" onclick="switchStockView('lowstock', this)">Low Stock</button>
+      </div>
+
+      <div id="stock-deadstock" class="stock-view active">
+        <div class="report-header">
+          <div class="report-title">Dead Stock Report</div>
+          <div class="report-actions filters-bar">
+            <input type="text" class="search-box" id="search-deadstock" placeholder="Search..."
+              oninput="filterTable('deadstock')">
+            <button class="btn btn-secondary" onclick="loadDeadStockReport()">Refresh</button>
+            <button class="btn btn-primary" onclick="downloadReportCsv('deadstock')">Export CSV</button>
+          </div>
+        </div>
+
+        <div class="stats-grid">
+          <div class="stat-card danger">
+            <div class="stat-value" id="deadstock-total-qty">0</div>
+            <div class="stat-label">Total Dead Stock (KG)</div>
+          </div>
+          <div class="stat-card warning">
+            <div class="stat-value" id="deadstock-entries">0</div>
+            <div class="stat-label">Total Entries</div>
+          </div>
+          <div class="stat-card info">
+            <div class="stat-value" id="deadstock-items">0</div>
+            <div class="stat-label">Affected Items</div>
+          </div>
+        </div>
+
+        <div id="deadstock-content">
+          <div class="loading">
+            <div class="spinner"></div>
+            <p>Loading dead stock data...</p>
+          </div>
         </div>
       </div>
 
-      <div class="stats-grid">
-        <div class="stat-card danger">
-          <div class="stat-value" id="deadstock-total-qty">0</div>
-          <div class="stat-label">Total Dead Stock (KG)</div>
+      <div id="stock-expired" class="stock-view">
+        <div class="report-header">
+          <div class="report-title">Expired Stock Report</div>
+          <div class="report-actions filters-bar">
+            <input type="text" class="search-box" id="search-expired" placeholder="Search..."
+              oninput="filterTable('expired')">
+            <button class="btn btn-secondary" onclick="loadExpiredReport()">Refresh</button>
+            <button class="btn btn-primary" onclick="downloadReportCsv('expired')">Export CSV</button>
+          </div>
         </div>
-        <div class="stat-card warning">
-          <div class="stat-value" id="deadstock-entries">0</div>
-          <div class="stat-label">Total Entries</div>
+
+        <div class="stats-grid">
+          <div class="stat-card danger">
+            <div class="stat-value" id="expired-qty">0</div>
+            <div class="stat-label">Expired Quantity (KG)</div>
+          </div>
+          <div class="stat-card warning">
+            <div class="stat-value" id="expired-items">0</div>
+            <div class="stat-label">Expired Items</div>
+          </div>
         </div>
-        <div class="stat-card info">
-          <div class="stat-value" id="deadstock-items">0</div>
-          <div class="stat-label">Affected Items</div>
+
+        <div id="expired-content">
+          <div class="loading">
+            <div class="spinner"></div>
+            <p>Loading expired stock data...</p>
+          </div>
         </div>
       </div>
 
-      <div id="deadstock-content">
-        <div class="loading">
-          <div class="spinner"></div>
-          <p>Loading dead stock data...</p>
+      <div id="stock-expiring" class="stock-view">
+        <div class="report-header">
+          <div class="report-title">Expiring Soon Report</div>
+          <div class="report-actions filters-bar">
+            <input type="text" class="search-box" id="search-expiring" placeholder="Search..."
+              oninput="filterTable('expiring')">
+            <button class="btn btn-secondary" onclick="loadExpiringReport()">Refresh</button>
+            <button class="btn btn-primary" onclick="downloadReportCsv('expiring')">Export CSV</button>
+          </div>
+        </div>
+
+        <div class="stats-grid">
+          <div class="stat-card danger">
+            <div class="stat-value" id="expiring-7days">0</div>
+            <div class="stat-label">Next 7 Days</div>
+          </div>
+          <div class="stat-card warning">
+            <div class="stat-value" id="expiring-30days">0</div>
+            <div class="stat-label">Next 30 Days</div>
+          </div>
+        </div>
+
+        <div id="expiring-content">
+          <div class="loading">
+            <div class="spinner"></div>
+            <p>Loading expiring items data...</p>
+          </div>
+        </div>
+      </div>
+
+      <div id="stock-lowstock" class="stock-view">
+        <div class="report-header">
+          <div class="report-title">Low Stock Alert Report</div>
+          <div class="report-actions filters-bar">
+            <input type="text" class="search-box" id="search-lowstock" placeholder="Search..."
+              oninput="filterTable('lowstock')">
+            <button class="btn btn-secondary" onclick="loadLowStockReport()">Refresh</button>
+            <button class="btn btn-primary" onclick="downloadReportCsv('lowstock')">Export CSV</button>
+          </div>
+        </div>
+
+        <div class="stats-grid">
+          <div class="stat-card danger">
+            <div class="stat-value" id="lowstock-critical">0</div>
+            <div class="stat-label">Critical (>80% below)</div>
+          </div>
+          <div class="stat-card warning">
+            <div class="stat-value" id="lowstock-warning">0</div>
+            <div class="stat-label">Warning (>50% below)</div>
+          </div>
+          <div class="stat-card info">
+            <div class="stat-value" id="lowstock-total">0</div>
+            <div class="stat-label">Total Items Below Min</div>
+          </div>
+        </div>
+
+        <div id="lowstock-content">
+          <div class="loading">
+            <div class="spinner"></div>
+            <p>Loading low stock data...</p>
+          </div>
         </div>
       </div>
     </div>
 
-    <!-- Rejected Items Report -->
     <div id="report-rejected" class="report-section">
       <div class="report-header">
         <div class="report-title">Rejected Items Report</div>
-        <div class="report-actions">
+        <div class="report-actions filters-bar">
           <input type="text" class="search-box" id="search-rejected" placeholder="Search..."
             oninput="filterTable('rejected')">
           <button class="btn btn-secondary" onclick="loadRejectedReport()">Refresh</button>
+          <button class="btn btn-primary" onclick="downloadReportCsv('rejected')">Export CSV</button>
         </div>
       </div>
 
@@ -388,125 +624,102 @@
       </div>
     </div>
 
-    <!-- Expired Stock Report -->
-    <div id="report-expired" class="report-section">
+    <div id="report-materialmovement" class="report-section">
       <div class="report-header">
-        <div class="report-title">Expired Stock Report</div>
-        <div class="report-actions">
-          <input type="text" class="search-box" id="search-expired" placeholder="Search..."
-            oninput="filterTable('expired')">
-          <button class="btn btn-secondary" onclick="loadExpiredReport()">Refresh</button>
+        <div class="report-title">Material Movement Report</div>
+        <div class="report-actions filters-bar">
+          <select class="filter-select" id="movement-flow">
+            <option value="ALL">All Flows</option>
+            <option value="INWARD">Inward</option>
+            <option value="OUTWARD">Outward</option>
+            <option value="TRANSFER">Transfer</option>
+          </select>
+          <div style="display:flex;align-items:center;gap:5px;">
+            <label style="font-size:12px;font-weight:600;color:#666;">From:</label>
+            <input type="date" class="filter-input" id="movement-start-date">
+          </div>
+          <div style="display:flex;align-items:center;gap:5px;">
+            <label style="font-size:12px;font-weight:600;color:#666;">To:</label>
+            <input type="date" class="filter-input" id="movement-end-date">
+          </div>
+          <input type="text" class="search-box" id="search-materialmovement" placeholder="Search..."
+            oninput="filterTable('materialmovement')">
+          <button class="btn btn-primary" onclick="loadMaterialMovementReport()">Generate</button>
+          <button class="btn btn-secondary" onclick="downloadMaterialMovementCsv()">Export CSV</button>
         </div>
       </div>
 
       <div class="stats-grid">
-        <div class="stat-card danger">
-          <div class="stat-value" id="expired-qty">0</div>
-          <div class="stat-label">Expired Quantity (KG)</div>
-        </div>
-        <div class="stat-card warning">
-          <div class="stat-value" id="expired-items">0</div>
-          <div class="stat-label">Expired Items</div>
-        </div>
-      </div>
-
-      <div id="expired-content">
-        <div class="loading">
-          <div class="spinner"></div>
-          <p>Loading expired stock data...</p>
-        </div>
-      </div>
-    </div>
-
-    <!-- Expiring Soon Report -->
-    <div id="report-expiring" class="report-section">
-      <div class="report-header">
-        <div class="report-title">Expiring Soon Report</div>
-        <div class="report-actions">
-          <input type="text" class="search-box" id="search-expiring" placeholder="Search..."
-            oninput="filterTable('expiring')">
-          <button class="btn btn-secondary" onclick="loadExpiringReport()">Refresh</button>
-        </div>
-      </div>
-
-      <div class="stats-grid">
-        <div class="stat-card danger">
-          <div class="stat-value" id="expiring-7days">0</div>
-          <div class="stat-label">Next 7 Days</div>
-        </div>
-        <div class="stat-card warning">
-          <div class="stat-value" id="expiring-30days">0</div>
-          <div class="stat-label">Next 30 Days</div>
-        </div>
-      </div>
-
-      <div id="expiring-content">
-        <div class="loading">
-          <div class="spinner"></div>
-          <p>Loading expiring items data...</p>
-        </div>
-      </div>
-    </div>
-
-    <!-- Low Stock Report -->
-    <div id="report-lowstock" class="report-section">
-      <div class="report-header">
-        <div class="report-title">Low Stock Alert Report</div>
-        <div class="report-actions">
-          <input type="text" class="search-box" id="search-lowstock" placeholder="Search..."
-            oninput="filterTable('lowstock')">
-          <button class="btn btn-secondary" onclick="loadLowStockReport()">Refresh</button>
-        </div>
-      </div>
-
-      <div class="stats-grid">
-        <div class="stat-card danger">
-          <div class="stat-value" id="lowstock-critical">0</div>
-          <div class="stat-label">Critical (>80% below)</div>
-        </div>
-        <div class="stat-card warning">
-          <div class="stat-value" id="lowstock-warning">0</div>
-          <div class="stat-label">Warning (>50% below)</div>
-        </div>
         <div class="stat-card info">
-          <div class="stat-value" id="lowstock-total">0</div>
-          <div class="stat-label">Total Items Below Min</div>
+          <div class="stat-value" id="movement-total-rows">0</div>
+          <div class="stat-label">Total Movements</div>
+        </div>
+        <div class="stat-card success">
+          <div class="stat-value" id="movement-total-qty">0</div>
+          <div class="stat-label">Total Quantity</div>
+        </div>
+        <div class="stat-card warning">
+          <div class="stat-value" id="movement-prod-qty">0</div>
+          <div class="stat-label">Moved To Production</div>
+        </div>
+        <div class="stat-card danger">
+          <div class="stat-value" id="movement-unique-items">0</div>
+          <div class="stat-label">Unique Items</div>
         </div>
       </div>
 
-      <div id="lowstock-content">
+      <div id="materialmovement-content">
         <div class="loading">
           <div class="spinner"></div>
-          <p>Loading low stock data...</p>
+          <p>Loading movement report...</p>
         </div>
       </div>
     </div>
   </div>
 
   <script>
-    let currentTab = 'deadstock';
+    let currentMainTab = 'stock';
+    let currentStockView = 'deadstock';
     let allData = {
       deadstock: [],
       rejected: [],
       expired: [],
       expiring: [],
-      lowstock: []
+      lowstock: [],
+      materialmovement: []
+    };
+    let materialMovementMeta = {
+      filters: { flow: 'ALL', period: 'DAILY', startDate: '', endDate: '' },
+      summary: { totalRows: 0, totalQty: 0, totalToProduction: 0, uniqueItems: 0 }
     };
 
     window.addEventListener('DOMContentLoaded', function () {
+      const startInput = document.getElementById('movement-start-date');
+      const endInput = document.getElementById('movement-end-date');
+      const now = new Date();
+      const sixMonthsAgo = new Date();
+      sixMonthsAgo.setMonth(now.getMonth() - 1); // Default to last 1 month for speed
+      
+      if (startInput) startInput.value = sixMonthsAgo.toISOString().slice(0, 10);
+      if (endInput) endInput.value = now.toISOString().slice(0, 10);
+      
       loadAllReports();
     });
 
-    function switchTab(tabName) {
-      currentTab = tabName;
-
-      // Update tab buttons
-      document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
-      event.target.classList.add('active');
-
-      // Update report sections
-      document.querySelectorAll('.report-section').forEach(section => section.classList.remove('active'));
+    function switchMainTab(tabName, tabButton) {
+      currentMainTab = tabName;
+      document.querySelectorAll('.tab').forEach(function (tab) { tab.classList.remove('active'); });
+      if (tabButton) tabButton.classList.add('active');
+      document.querySelectorAll('.report-section').forEach(function (section) { section.classList.remove('active'); });
       document.getElementById('report-' + tabName).classList.add('active');
+    }
+
+    function switchStockView(viewName, tabButton) {
+      currentStockView = viewName;
+      document.querySelectorAll('.subtab').forEach(function (tab) { tab.classList.remove('active'); });
+      if (tabButton) tabButton.classList.add('active');
+      document.querySelectorAll('.stock-view').forEach(function (section) { section.classList.remove('active'); });
+      document.getElementById('stock-' + viewName).classList.add('active');
     }
 
     function loadAllReports() {
@@ -515,23 +728,21 @@
       loadExpiredReport();
       loadExpiringReport();
       loadLowStockReport();
+      loadMaterialMovementReport();
     }
 
     function refreshAllReports() {
       loadAllReports();
     }
 
-    // Dead Stock Report
     function loadDeadStockReport() {
       google.script.run
         .withSuccessHandler(function (data) {
           data = data || { rows: [], totalQty: 0, byItem: [] };
           allData.deadstock = data.rows || [];
-
           document.getElementById('deadstock-total-qty').textContent = (data.totalQty || 0).toFixed(2);
           document.getElementById('deadstock-entries').textContent = allData.deadstock.length;
           document.getElementById('deadstock-items').textContent = data.byItem ? data.byItem.length : 0;
-
           renderDeadStockTable(allData.deadstock);
         })
         .withFailureHandler(function (error) {
@@ -543,45 +754,45 @@
 
     function renderDeadStockTable(data) {
       const container = document.getElementById('deadstock-content');
-
-      if (data.length === 0) {
+      if (!data.length) {
         container.innerHTML = '<div class="empty-state"><div class="empty-icon">✓</div><h3>No Dead Stock</h3><p>No dead stock entries found</p></div>';
         return;
       }
 
-      const html = `
-        <table class="data-table" id="table-deadstock">
-          <thead>
-            <tr>
-              <th>Date</th>
-              <th>PO Number</th>
-              <th>Item Code</th>
-              <th>Batch ID</th>
-              <th>Quantity</th>
-              <th>UOM</th>
-              <th>Reason</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${data.map(row => `
+      container.innerHTML = `
+        <div class="table-wrap">
+          <table class="data-table" id="table-deadstock">
+            <thead>
               <tr>
-                <td>${formatDate(row.timestamp)}</td>
-                <td>${row.prodOrderRef || '-'}</td>
-                <td><strong>${row.itemCode}</strong></td>
-                <td>${row.batchId}</td>
-                <td style="text-align:right;font-weight:600;">${row.quantity.toFixed(2)}</td>
-                <td>${row.uom}</td>
-                <td>${row.reason || 'Not specified'}</td>
+                <th>Date</th>
+                <th>PO Number</th>
+                <th>Item Code</th>
+                <th>Batch ID</th>
+                <th>Quantity</th>
+                <th>UOM</th>
+                <th>Reason</th>
               </tr>
-            `).join('')}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              ${data.map(function (row) {
+                return `
+                  <tr>
+                    <td>${formatDate(row.timestamp)}</td>
+                    <td>${row.prodOrderRef || '-'}</td>
+                    <td><strong>${row.itemCode}</strong></td>
+                    <td>${row.batchId}</td>
+                    <td style="text-align:right;font-weight:600;">${Number(row.quantity || 0).toFixed(2)}</td>
+                    <td>${row.uom || '-'}</td>
+                    <td>${row.reason || 'Not specified'}</td>
+                  </tr>
+                `;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
       `;
-
-      container.innerHTML = html;
     }
 
-    // Rejected Items Report
     function loadRejectedReport() {
       google.script.run
         .withSuccessHandler(function (data) {
@@ -595,16 +806,17 @@
           }
 
           allData.rejected = data.rejections || [];
-
-          const totalRejectedQty = allData.rejected.reduce((sum, r) => sum + (r.rejectedQty || 0), 0);
-          const totalApprovedQty = allData.rejected.reduce((sum, r) => sum + (r.approvedQty || 0), 0);
+          const totalRejectedQty = allData.rejected.reduce(function (sum, r) { return sum + (Number(r.rejectedQty) || 0); }, 0);
+          const totalApprovedQty = allData.rejected.reduce(function (sum, r) { return sum + (Number(r.approvedQty) || 0); }, 0);
           const uniqueEvents = allData.rejected.length;
 
           document.getElementById('rejected-total').textContent = totalRejectedQty.toFixed(2);
           document.getElementById('rejected-held').textContent = totalApprovedQty.toFixed(2);
+          document.getElementById('rejected-partial').textContent = allData.rejected.filter(function (r) {
+            return (Number(r.approvedQty) || 0) > 0 && (Number(r.rejectedQty) || 0) > 0;
+          }).length;
           document.getElementById('rejected-items').textContent = uniqueEvents;
 
-          // Update labels for the new view
           const cardLabels = document.querySelectorAll('#report-rejected .stat-card .stat-label');
           if (cardLabels.length >= 2) {
             cardLabels[0].textContent = 'Total Rejected (KG)';
@@ -624,62 +836,59 @@
 
     function renderRejectedTable(data) {
       const container = document.getElementById('rejected-content');
-
-      if (!data || data.length === 0) {
+      if (!data || !data.length) {
         container.innerHTML = '<div class="empty-state"><div class="empty-icon">✓</div><h3>No Rejections</h3><p>No rejected items found</p></div>';
         return;
       }
 
-      const html = `
-        <table class="data-table" id="table-rejected">
-          <thead>
-            <tr>
-              <th>Date/Time</th>
-              <th>Item Code</th>
-              <th>Batch ID</th>
-              <th>Bin</th>
-              <th style="text-align:right;">Approved Qty</th>
-              <th style="text-align:right;">Rejected Qty</th>
-              <th>Reason/Remarks</th>
-              <th>Operator</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${data.map(row => {
-        const combinedReason = [row.reason, row.remarks].filter(x => x && x !== '-').join(' | ');
+      container.innerHTML = `
+        <div class="table-wrap">
+          <table class="data-table" id="table-rejected">
+            <thead>
+              <tr>
+                <th>Date/Time</th>
+                <th>Item Code</th>
+                <th>Batch ID</th>
+                <th>Bin</th>
+                <th style="text-align:right;">Approved Qty</th>
+                <th style="text-align:right;">Rejected Qty</th>
+                <th>Reason/Remarks</th>
+                <th>Operator</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${data.map(function (row) {
+                const combinedReason = [row.reason, row.remarks].filter(function (value) {
+                  return value && value !== '-';
+                }).join(' | ');
 
-        return `
-                <tr>
-                  <td style="white-space:nowrap;">${row.timestamp}</td>
-                  <td><strong>${row.itemCode}</strong></td>
-                  <td>${row.batchId}</td>
-                  <td>${row.binId}</td>
-                  <td style="text-align:right; font-weight:bold; color:#10B981;">${row.approvedQty > 0 ? row.approvedQty.toFixed(2) : '-'}</td>
-                  <td style="text-align:right; font-weight:bold; color:#EF4444;">${row.rejectedQty > 0 ? row.rejectedQty.toFixed(2) : '-'}</td>
-                  <td style="font-size:12px;">${combinedReason || '-'}</td>
-                  <td style="font-size:11px; color:#666;">${row.user || '-'}</td>
-                </tr>
-              `;
-      }).join('')}
-          </tbody>
-        </table>
+                return `
+                  <tr>
+                    <td style="white-space:nowrap;">${row.timestamp || '-'}</td>
+                    <td><strong>${row.itemCode || '-'}</strong></td>
+                    <td>${row.batchId || '-'}</td>
+                    <td>${row.binId || '-'}</td>
+                    <td style="text-align:right;font-weight:bold;color:#10B981;">${(Number(row.approvedQty) || 0) > 0 ? Number(row.approvedQty).toFixed(2) : '-'}</td>
+                    <td style="text-align:right;font-weight:bold;color:#EF4444;">${(Number(row.rejectedQty) || 0) > 0 ? Number(row.rejectedQty).toFixed(2) : '-'}</td>
+                    <td style="font-size:12px;">${combinedReason || '-'}</td>
+                    <td style="font-size:11px;color:#666;">${row.user || '-'}</td>
+                  </tr>
+                `;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
       `;
-
-      container.innerHTML = html;
     }
 
-    // Expired Stock Report
     function loadExpiredReport() {
       google.script.run
         .withSuccessHandler(function (data) {
           data = data || { expired: [] };
           allData.expired = data.expired || [];
-
-          const totalQty = allData.expired.reduce((sum, item) => sum + (item.quantity || 0), 0);
-
+          const totalQty = allData.expired.reduce(function (sum, item) { return sum + (Number(item.quantity) || 0); }, 0);
           document.getElementById('expired-qty').textContent = totalQty.toFixed(2);
           document.getElementById('expired-items').textContent = allData.expired.length;
-
           renderExpiredTable(allData.expired);
         })
         .withFailureHandler(function (error) {
@@ -691,54 +900,51 @@
 
     function renderExpiredTable(data) {
       const container = document.getElementById('expired-content');
-
-      if (data.length === 0) {
+      if (!data.length) {
         container.innerHTML = '<div class="empty-state"><div class="empty-icon">✓</div><h3>No Expired Stock</h3><p>No expired items found</p></div>';
         return;
       }
 
-      const html = `
-        <table class="data-table" id="table-expired">
-          <thead>
-            <tr>
-              <th>Item Code</th>
-              <th>Batch ID</th>
-              <th>Bin</th>
-              <th>Quantity</th>
-              <th>Expiry Date</th>
-              <th>Days Overdue</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${data.map(row => `
+      container.innerHTML = `
+        <div class="table-wrap">
+          <table class="data-table" id="table-expired">
+            <thead>
               <tr>
-                <td><strong>${row.itemCode}</strong></td>
-                <td>${row.batchId}</td>
-                <td>${row.binId}</td>
-                <td style="text-align:right;font-weight:600;">${row.quantity.toFixed(2)} ${row.uom}</td>
-                <td>${formatDate(row.expiryDate)}</td>
-                <td><span class="badge badge-danger">${Math.abs(row.daysOverdue)} days</span></td>
+                <th>Item Code</th>
+                <th>Batch ID</th>
+                <th>Bin</th>
+                <th>Quantity</th>
+                <th>Expiry Date</th>
+                <th>Days Overdue</th>
               </tr>
-            `).join('')}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              ${data.map(function (row) {
+                return `
+                  <tr>
+                    <td><strong>${row.itemCode || '-'}</strong></td>
+                    <td>${row.batchId || '-'}</td>
+                    <td>${row.binId || '-'}</td>
+                    <td style="text-align:right;font-weight:600;">${Number(row.quantity || 0).toFixed(2)} ${row.uom || ''}</td>
+                    <td>${formatDate(row.expiryDate)}</td>
+                    <td><span class="badge badge-danger">${Math.abs(Number(row.daysOverdue) || 0)} days</span></td>
+                  </tr>
+                `;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
       `;
-
-      container.innerHTML = html;
     }
 
-    // Expiring Soon Report
     function loadExpiringReport() {
       google.script.run
         .withSuccessHandler(function (data) {
-          allData.expiring = data.expiring || [];
-
-          const next7 = allData.expiring.filter(item => item.daysUntilExpiry <= 7).length;
-          const next30 = allData.expiring.filter(item => item.daysUntilExpiry <= 30).length;
-
+          allData.expiring = (data && data.expiring) || [];
+          const next7 = allData.expiring.filter(function (item) { return Number(item.daysUntilExpiry) <= 7; }).length;
+          const next30 = allData.expiring.filter(function (item) { return Number(item.daysUntilExpiry) <= 30; }).length;
           document.getElementById('expiring-7days').textContent = next7;
           document.getElementById('expiring-30days').textContent = next30;
-
           renderExpiringTable(allData.expiring);
         })
         .withFailureHandler(function (error) {
@@ -750,58 +956,54 @@
 
     function renderExpiringTable(data) {
       const container = document.getElementById('expiring-content');
-
-      if (data.length === 0) {
+      if (!data.length) {
         container.innerHTML = '<div class="empty-state"><div class="empty-icon">✓</div><h3>No Items Expiring Soon</h3><p>No items expiring in next 30 days</p></div>';
         return;
       }
 
-      const html = `
-        <table class="data-table" id="table-expiring">
-          <thead>
-            <tr>
-              <th>Item Code</th>
-              <th>Batch ID</th>
-              <th>Bin</th>
-              <th>Quantity</th>
-              <th>Expiry Date</th>
-              <th>Days Until Expiry</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${data.map(row => {
-        const badgeClass = row.daysUntilExpiry <= 7 ? 'danger' : row.daysUntilExpiry <= 14 ? 'warning' : 'info';
-        return `
-                <tr>
-                  <td><strong>${row.itemCode}</strong></td>
-                  <td>${row.batchId}</td>
-                  <td>${row.binId}</td>
-                  <td style="text-align:right;font-weight:600;">${row.quantity.toFixed(2)} ${row.uom}</td>
-                  <td>${formatDate(row.expiryDate)}</td>
-                  <td><span class="badge badge-${badgeClass}">${row.daysUntilExpiry} days</span></td>
-                </tr>
-              `;
-      }).join('')}
-          </tbody>
-        </table>
+      container.innerHTML = `
+        <div class="table-wrap">
+          <table class="data-table" id="table-expiring">
+            <thead>
+              <tr>
+                <th>Item Code</th>
+                <th>Batch ID</th>
+                <th>Bin</th>
+                <th>Quantity</th>
+                <th>Expiry Date</th>
+                <th>Days Until Expiry</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${data.map(function (row) {
+                const days = Number(row.daysUntilExpiry) || 0;
+                const badgeClass = days <= 7 ? 'danger' : (days <= 14 ? 'warning' : 'info');
+                return `
+                  <tr>
+                    <td><strong>${row.itemCode || '-'}</strong></td>
+                    <td>${row.batchId || '-'}</td>
+                    <td>${row.binId || '-'}</td>
+                    <td style="text-align:right;font-weight:600;">${Number(row.quantity || 0).toFixed(2)} ${row.uom || ''}</td>
+                    <td>${formatDate(row.expiryDate)}</td>
+                    <td><span class="badge badge-${badgeClass}">${days} days</span></td>
+                  </tr>
+                `;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
       `;
-
-      container.innerHTML = html;
     }
 
-    // Low Stock Report
     function loadLowStockReport() {
       google.script.run
         .withSuccessHandler(function (data) {
-          allData.lowstock = data.lowStock || [];
-
-          const critical = allData.lowstock.filter(item => item.severity === 'critical').length;
-          const warning = allData.lowstock.filter(item => item.severity === 'warning').length;
-
+          allData.lowstock = (data && data.lowStock) || [];
+          const critical = allData.lowstock.filter(function (item) { return item.severity === 'critical'; }).length;
+          const warning = allData.lowstock.filter(function (item) { return item.severity === 'warning'; }).length;
           document.getElementById('lowstock-critical').textContent = critical;
           document.getElementById('lowstock-warning').textContent = warning;
           document.getElementById('lowstock-total').textContent = allData.lowstock.length;
-
           renderLowStockTable(allData.lowstock);
         })
         .withFailureHandler(function (error) {
@@ -813,71 +1015,362 @@
 
     function renderLowStockTable(data) {
       const container = document.getElementById('lowstock-content');
-
-      if (data.length === 0) {
+      const escapeHtml = function (value) {
+        return String(value || '').replace(/[&<>"']/g, function (ch) {
+          return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch];
+        });
+      };
+      if (!data.length) {
         container.innerHTML = '<div class="empty-state"><div class="empty-icon">✓</div><h3>All Stock Levels Good</h3><p>No items below minimum stock level</p></div>';
         return;
       }
 
-      const html = `
-        <table class="data-table" id="table-lowstock">
-          <thead>
-            <tr>
-              <th>Item Code</th>
-              <th>Current Stock</th>
-              <th>Min Stock</th>
-              <th>Deficit</th>
-              <th>% Below Min</th>
-              <th>Severity</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${data.map(row => {
-        const badgeClass = row.severity === 'critical' ? 'danger' : row.severity === 'warning' ? 'warning' : 'info';
-        return `
-                <tr>
-                  <td><strong>${row.itemCode}</strong></td>
-                  <td style="text-align:right;">${row.currentStock.toFixed(2)}</td>
-                  <td style="text-align:right;">${row.minStock.toFixed(2)}</td>
-                  <td style="text-align:right;color:#ef4444;font-weight:600;">${row.deficit.toFixed(2)}</td>
-                  <td style="text-align:right;">${row.percentBelow}%</td>
-                  <td><span class="badge badge-${badgeClass}">${row.severity.toUpperCase()}</span></td>
-                </tr>
-              `;
-      }).join('')}
-          </tbody>
-        </table>
+      container.innerHTML = `
+        <div class="table-wrap">
+          <table class="data-table low-stock-table" id="table-lowstock">
+            <colgroup>
+              <col class="col-code">
+              <col class="col-number">
+              <col class="col-number">
+              <col class="col-number">
+              <col class="col-number">
+              <col class="col-severity">
+            </colgroup>
+            <thead>
+              <tr>
+                <th>Item Code</th>
+                <th class="col-number">Current Stock</th>
+                <th class="col-number">Min Stock</th>
+                <th class="col-number">Deficit</th>
+                <th class="col-number">% Below Min</th>
+                <th class="col-severity">Severity</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${data.map(function (row) {
+                const badgeClass = row.severity === 'critical' ? 'danger' : (row.severity === 'warning' ? 'warning' : 'info');
+                const code = escapeHtml(row.itemCode || '-');
+                const name = escapeHtml(row.itemName || '');
+                return `
+                  <tr>
+                    <td>
+                      <div class="low-stock-item-code">${code}</div>
+                      ${name ? `<div class="low-stock-item-name">${name}</div>` : ''}
+                    </td>
+                    <td class="num-cell">${Number(row.currentStock || 0).toFixed(2)}</td>
+                    <td class="num-cell">${Number(row.minStock || 0).toFixed(2)}</td>
+                    <td class="num-cell deficit-cell">${Number(row.deficit || 0).toFixed(2)}</td>
+                    <td class="num-cell">${row.percentBelow || 0}%</td>
+                    <td><span class="badge badge-${badgeClass}">${String(row.severity || 'info').toUpperCase()}</span></td>
+                  </tr>
+                `;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
       `;
-
-      container.innerHTML = html;
     }
 
-    // Filter tables
+    function loadMaterialMovementReport() {
+      const flow = (document.getElementById('movement-flow') || {}).value || 'ALL';
+      const startDate = (document.getElementById('movement-start-date') || {}).value || '';
+      const endDate = (document.getElementById('movement-end-date') || {}).value || '';
+
+      if (!startDate || !endDate) {
+        alert('Please select both Start and End dates.');
+        return;
+      }
+
+      const s = new Date(startDate);
+      const e = new Date(endDate);
+      const diffDays = (e - s) / (1000 * 60 * 60 * 24);
+      if (diffDays < 0) {
+        alert('Start date must be before End date.');
+        return;
+      }
+      if (diffDays > 183) {
+        alert('Date range cannot exceed 6 months (183 days).');
+        return;
+      }
+
+      const content = document.getElementById('materialmovement-content');
+      content.innerHTML = '<div class="loading"><div class="spinner"></div><p>Fetching movement data...</p></div>';
+
+      google.script.run
+        .withSuccessHandler(function (data) {
+          data = data || { rows: [], summary: {}, filters: {} };
+          allData.materialmovement = data.rows || [];
+          materialMovementMeta = {
+            filters: data.filters || {},
+            summary: data.summary || {}
+          };
+
+          document.getElementById('movement-total-rows').textContent = Number((data.summary || {}).totalRows || 0);
+          document.getElementById('movement-total-qty').textContent = Number((data.summary || {}).totalQty || 0).toFixed(2);
+          document.getElementById('movement-prod-qty').textContent = Number((data.summary || {}).totalToProduction || 0).toFixed(2);
+          document.getElementById('movement-unique-items').textContent = Number((data.summary || {}).uniqueItems || 0);
+
+          renderMaterialMovementTable(allData.materialmovement, data.filters || {});
+        })
+        .withFailureHandler(function (error) {
+          document.getElementById('materialmovement-content').innerHTML =
+            '<div class="empty-state"><div class="empty-icon">⚠</div><h3>Error Loading Data</h3><p>' + (error.message || error) + '</p></div>';
+        })
+        .getMaterialMovementReportData({
+          flow: flow,
+          period: 'CUSTOM',
+          startDate: startDate,
+          endDate: endDate
+        });
+    }
+
+    function renderMaterialMovementTable(data, filters) {
+      const container = document.getElementById('materialmovement-content');
+      if (!data || !data.length) {
+        container.innerHTML = '<div class="empty-state"><div class="empty-icon">✓</div><h3>No Movement Found</h3><p>No matching material movement found for the selected filters</p></div>';
+        return;
+      }
+
+      const rangeText = filters && filters.startDate && filters.endDate
+        ? '<p style="margin-bottom:12px;color:#6b7280;font-size:13px;">Range: ' + filters.startDate + ' to ' + filters.endDate + '</p>'
+        : '';
+
+      container.innerHTML = `
+        ${rangeText}
+        <div class="table-wrap">
+          <table class="data-table" id="table-materialmovement">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Flow</th>
+                <th>Type</th>
+                <th>Item Code</th>
+                <th>Item Name</th>
+                <th>Batch</th>
+                <th>Quantity</th>
+                <th>Current Stock Now</th>
+                <th>UOM</th>
+                <th>Site</th>
+                <th>Location</th>
+                <th>Bin</th>
+                <th>From Bin</th>
+                <th>To Bin</th>
+                <th>To Prod Qty</th>
+                <th>Ref</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${data.map(function (row) {
+                return `
+                  <tr>
+                    <td style="white-space:nowrap;">${row.dateLabel || '-'}</td>
+                    <td><span class="badge badge-${getMovementBadgeClass(row.flow)}">${row.flow || '-'}</span></td>
+                    <td>${row.movementType || '-'}</td>
+                    <td><strong>${row.itemCode || '-'}</strong></td>
+                    <td>${row.itemName || '-'}</td>
+                    <td>${row.batchNumber || row.batchId || '-'}</td>
+                    <td style="text-align:right;font-weight:600;">${Number(row.quantity || 0).toFixed(2)}</td>
+                    <td style="text-align:right;font-weight:700;color:#047857;">${Number(row.currentStockNow || 0).toFixed(2)}</td>
+                    <td>${row.uom || '-'}</td>
+                    <td>${row.site || '-'}</td>
+                    <td>${row.location || '-'}</td>
+                    <td>${row.binCode || row.binId || '-'}</td>
+                    <td>${row.fromBinCode || row.fromBinId || '-'}</td>
+                    <td>${row.toBinCode || row.toBinId || '-'}</td>
+                    <td style="text-align:right;color:${Number(row.toProductionQty || 0) > 0 ? '#b45309' : '#6b7280'};font-weight:600;">${Number(row.toProductionQty || 0).toFixed(2)}</td>
+                    <td>${row.prodOrderRef || row.ginNo || '-'}</td>
+                  </tr>
+                `;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
+      `;
+    }
+
+    function getMovementBadgeClass(flow) {
+      const key = String(flow || '').toUpperCase();
+      if (key === 'INWARD') return 'success';
+      if (key === 'OUTWARD') return 'warning';
+      if (key === 'TRANSFER') return 'info';
+      return 'info';
+    }
+
+    function downloadMaterialMovementCsv() {
+      const rows = allData.materialmovement || [];
+      if (!rows.length) {
+        alert('No movement report data available to download.');
+        return;
+      }
+
+      const header = [
+        'Date', 'Flow', 'Type', 'Item Code', 'Item Name', 'Batch', 'Batch ID',
+        'Quantity', 'Current Stock Now', 'Item Stock Now', 'UOM', 'Site', 'Location', 'Bin',
+        'From Site', 'From Location', 'From Bin',
+        'To Site', 'To Location', 'To Bin',
+        'To Production Qty', 'Prod/Ref', 'GIN No', 'QA Status', 'Remarks'
+      ];
+
+      const csvRows = [header].concat(rows.map(function (row) {
+        return [
+          row.dateLabel || '',
+          row.flow || '',
+          row.movementType || '',
+          row.itemCode || '',
+          row.itemName || '',
+          row.batchNumber || '',
+          row.batchId || '',
+          Number(row.quantity || 0).toFixed(2),
+          Number(row.currentStockNow || 0).toFixed(2),
+          Number(row.currentItemStockNow || 0).toFixed(2),
+          row.uom || '',
+          row.site || '',
+          row.location || '',
+          row.binCode || row.binId || '',
+          row.fromSite || '',
+          row.fromLocation || '',
+          row.fromBinCode || row.fromBinId || '',
+          row.toSite || '',
+          row.toLocation || '',
+          row.toBinCode || row.toBinId || '',
+          Number(row.toProductionQty || 0).toFixed(2),
+          row.prodOrderRef || '',
+          row.ginNo || '',
+          row.qualityStatus || '',
+          row.remarks || ''
+        ];
+      }));
+
+      const period = String(((materialMovementMeta.filters || {}).period) || 'REPORT').toLowerCase();
+      const flow = String(((materialMovementMeta.filters || {}).flow) || 'all').toLowerCase();
+      const endDate = String(((materialMovementMeta.filters || {}).endDate) || new Date().toISOString().slice(0, 10));
+      downloadCsvFile(csvRows, 'material-movement-' + flow + '-' + period + '-' + endDate + '.csv');
+    }
+
+    function downloadReportCsv(reportType) {
+      const rows = allData[reportType] || [];
+      if (!rows.length) {
+        alert('No data available to download for this report.');
+        return;
+      }
+
+      let header = [];
+      let fileName = reportType + '-report.csv';
+      let csvRows = [];
+
+      if (reportType === 'deadstock') {
+        header = ['Date', 'PO Number', 'Item Code', 'Batch ID', 'Quantity', 'UOM', 'Reason'];
+        csvRows = rows.map(function (row) {
+          return [
+            formatDate(row.timestamp),
+            row.prodOrderRef || '',
+            row.itemCode || '',
+            row.batchId || '',
+            Number(row.quantity || 0).toFixed(2),
+            row.uom || '',
+            row.reason || ''
+          ];
+        });
+        fileName = 'stock-dead-stock.csv';
+      } else if (reportType === 'expired') {
+        header = ['Item Code', 'Batch ID', 'Bin', 'Quantity', 'UOM', 'Expiry Date', 'Days Overdue'];
+        csvRows = rows.map(function (row) {
+          return [
+            row.itemCode || '',
+            row.batchId || '',
+            row.binId || '',
+            Number(row.quantity || 0).toFixed(2),
+            row.uom || '',
+            formatDate(row.expiryDate),
+            Math.abs(Number(row.daysOverdue) || 0)
+          ];
+        });
+        fileName = 'stock-expired.csv';
+      } else if (reportType === 'expiring') {
+        header = ['Item Code', 'Batch ID', 'Bin', 'Quantity', 'UOM', 'Expiry Date', 'Days Until Expiry'];
+        csvRows = rows.map(function (row) {
+          return [
+            row.itemCode || '',
+            row.batchId || '',
+            row.binId || '',
+            Number(row.quantity || 0).toFixed(2),
+            row.uom || '',
+            formatDate(row.expiryDate),
+            Number(row.daysUntilExpiry) || 0
+          ];
+        });
+        fileName = 'stock-expiring-soon.csv';
+      } else if (reportType === 'lowstock') {
+        header = ['Item Code', 'Item Name', 'Current Stock', 'Min Stock', 'Deficit', 'Percent Below', 'Severity'];
+        csvRows = rows.map(function (row) {
+          return [
+            row.itemCode || '',
+            row.itemName || '',
+            Number(row.currentStock || 0).toFixed(2),
+            Number(row.minStock || 0).toFixed(2),
+            Number(row.deficit || 0).toFixed(2),
+            (row.percentBelow || 0) + '%',
+            String(row.severity || '').toUpperCase()
+          ];
+        });
+        fileName = 'stock-low-stock.csv';
+      } else if (reportType === 'rejected') {
+        header = ['Date/Time', 'Item Code', 'Batch ID', 'Bin', 'Approved Qty', 'Rejected Qty', 'Reason', 'Remarks', 'Operator'];
+        csvRows = rows.map(function (row) {
+          return [
+            row.timestamp || '',
+            row.itemCode || '',
+            row.batchId || '',
+            row.binId || '',
+            Number(row.approvedQty || 0).toFixed(2),
+            Number(row.rejectedQty || 0).toFixed(2),
+            row.reason || '',
+            row.remarks || '',
+            row.user || ''
+          ];
+        });
+        fileName = 'rejected-items.csv';
+      }
+
+      downloadCsvFile([header].concat(csvRows), fileName);
+    }
+
+    function downloadCsvFile(csvRows, filename) {
+      const csv = csvRows.map(function (line) {
+        return line.map(csvCell).join(',');
+      }).join('\n');
+
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    }
+
+    function csvCell(value) {
+      const text = String(value == null ? '' : value);
+      return '"' + text.replace(/"/g, '""') + '"';
+    }
+
     function filterTable(reportType) {
       const searchInput = document.getElementById('search-' + reportType);
-      const searchTerm = searchInput.value.toUpperCase();
       const table = document.getElementById('table-' + reportType);
+      if (!searchInput || !table) return;
 
-      if (!table) return;
-
+      const searchTerm = searchInput.value.toUpperCase();
       const rows = table.getElementsByTagName('tbody')[0].getElementsByTagName('tr');
-
       for (let i = 0; i < rows.length; i++) {
-        const row = rows[i];
-        const text = row.textContent || row.innerText;
-
-        if (text.toUpperCase().indexOf(searchTerm) > -1) {
-          row.style.display = '';
-        } else {
-          row.style.display = 'none';
-        }
+        const text = rows[i].textContent || rows[i].innerText;
+        rows[i].style.display = text.toUpperCase().indexOf(searchTerm) > -1 ? '' : 'none';
       }
     }
 
-    // Utility functions
     function formatDate(date) {
       if (!date) return '-';
-      // If server already returned a pre-formatted string (e.g. "15-Jan-2024"), return as-is
       if (typeof date === 'string' && /^[0-9]{2}-[A-Za-z]{3}-[0-9]{4}/.test(date)) return date;
       const d = date instanceof Date ? date : new Date(date);
       if (isNaN(d.getTime())) return String(date) || '-';

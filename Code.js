@@ -1,4 +1,4 @@
-﻿/**
+/**
  * COMPLETE WAREHOUSE MANAGEMENT SYSTEM - CODE.GS
  * 
  * V2 ARCHITECTURE - CONSOLIDATED MASTER FILE
@@ -42,7 +42,8 @@ const CONFIG = {
     DEAD_STOCK: 'Dead_Stock_Log',
     LOCATION_MASTER: 'Location_master',
     AI_KNOWLEDGE: 'WMS_AI_Knowledge',
-    AI_QUERY_LOG: 'AI_Query_Log'
+    AI_QUERY_LOG: 'AI_Query_Log',
+    PACKING_VERSION_MASTER: 'Packing_Version_Master'
   },
 
   ITEM_COLS: {
@@ -198,8 +199,21 @@ const CONFIG = {
     USER_EMAIL: 10
   },
 
+  PACKING_VERSION_COLS: {
+    MAPPING_ID: 0,
+    ITEM_CODE: 1,
+    SYSTEM_VERSION: 2,
+    BIN_ID: 3,
+    IS_LATEST: 4,
+    REASON: 5,
+    UPDATED_BY: 6,
+    UPDATED_AT: 7,
+    LATEST_NAME: 8
+  },
+
   MOVEMENT_TYPES: {
     INWARD: 'INWARD_RECEIPT',
+    INWARD_REVERSAL: 'INWARD_REVERSAL',
     DISPATCH: 'DISPATCH',
     CONSUMPTION: 'PROD_CONSUMPTION',
     RETURN_PROD: 'PROD_RETURN',
@@ -213,6 +227,102 @@ const CONFIG = {
     ALLOW_TRANSFER_BEFORE_QA: false
   }
 };
+
+// =====================================================
+// SIMPLE STOCK LOOKUP — used by TransferForm picker
+// Reads Inventory_Balance directly by item_code_cache.
+// Returns ONLY plain strings/numbers — no Date objects,
+// no rowData. Safe for google.script.run serialization.
+// =====================================================
+
+/**
+ * getStockByItemCode
+ * Called by TransferForm when user enters an item code.
+ * Scans Inventory_Balance col 2 (item_code_cache) for exact match.
+ * Also reads Bin_Master col 0/2 to resolve bin_code from bin_id.
+ *
+ * @param  {string} itemCode  e.g. "ST27"
+ * @returns {Array}  [{batchId, binId, binCode, site, location, qty, uom, qaStatus, version}]
+ */
+/**
+ * getStockByItemCode
+ * Lean inventory lookup for TransferForm source picker.
+ * Returns ONLY plain primitives — no Date objects, no raw arrays.
+ * Safe for google.script.run serialization.
+ * Uses hardcoded column indices that match INVENTORY_COLS exactly.
+ *
+ * @param  {string} itemCode — e.g. "ST27"
+ * @returns {Array<{batchId,binId,binCode,site,location,qty,uom,qaStatus,version}>}
+ */
+function getStockByItemCode(itemCode) {
+  return protect(function () {
+    var code = String(itemCode || '').trim().toUpperCase();
+    if (!code) return [];
+
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var invSheet = ss.getSheetByName(CONFIG.SHEETS.INVENTORY);
+    if (!invSheet) return [];
+
+    var invData = invSheet.getDataRange().getValues();
+
+    // Build bin_id → bin_code lookup from Bin_Master (col 0=bin_id, col 2=bin_code)
+    var binCodeMap = {};
+    var binSheet = ss.getSheetByName(CONFIG.SHEETS.BIN);
+    if (binSheet) {
+      var binData = binSheet.getDataRange().getValues();
+      for (var b = 1; b < binData.length; b++) {
+        var bid = String(binData[b][0] || '').trim();
+        var bcod = String(binData[b][2] || '').trim();
+        if (bid) binCodeMap[bid] = bcod || bid;
+      }
+    }
+
+    var results = [];
+    var C = CONFIG.INVENTORY_COLS;          // shorthand
+
+    for (var i = 1; i < invData.length; i++) {
+      var row = invData[i];
+
+      // Match on item_code_cache (col 2)
+      if (String(row[C.ITEM_CODE_CACHE] || '').trim().toUpperCase() !== code) continue;
+
+      var qty = Number(row[C.TOTAL_QUANTITY]) || 0;
+      if (qty <= 0) continue;
+
+      var binId = String(row[C.BIN_ID] || '').trim();
+      var batchInfo = _resolveBatchReference(code, row[C.BATCH_ID]);
+      var batchId = String((batchInfo && batchInfo.batchId) || row[C.BATCH_ID] || '').trim();
+      var site = String(row[C.SITE] || '').trim();
+      var loc = String(row[C.LOCATION] || '').trim();
+      var uom = String(row[C.UOM] || 'NOS').trim() || 'NOS';
+      var qa = String(row[C.QUALITY_STATUS] || 'PENDING').trim().toUpperCase();
+      var ver = String(row[C.VERSION] || '').trim();
+
+      // All primitives — no Date, no nested arrays — safe for GAS serialization
+      results.push({
+        batchId: batchId,
+        batchNumber: String((batchInfo && batchInfo.batchNumber) || batchId),
+        binId: binId,
+        binCode: binCodeMap[binId] || binId,
+        site: site,
+        location: loc,
+        qty: qty,
+        uom: uom,
+        qaStatus: qa,
+        version: ver
+      });
+    }
+
+    // Sort: APPROVED/OVERRIDDEN first, then highest qty
+    results.sort(function (a, b) {
+      var okA = (a.qaStatus === 'APPROVED' || a.qaStatus === 'OVERRIDDEN') ? 1 : 0;
+      var okB = (b.qaStatus === 'APPROVED' || b.qaStatus === 'OVERRIDDEN') ? 1 : 0;
+      return okB !== okA ? okB - okA : b.qty - a.qty;
+    });
+
+    return results;
+  });
+}
 
 // =====================================================
 // 2. SECURITY & AUTH MIDDLEWARE (Consolidated)
@@ -395,6 +505,23 @@ function _withRequestCache(callback) {
   }
 }
 
+function _getScriptCacheJson(cacheKey) {
+  try {
+    const raw = CacheService.getScriptCache().get(cacheKey);
+    return raw ? JSON.parse(raw) : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function _putScriptCacheJson(cacheKey, value, ttlSeconds) {
+  try {
+    CacheService.getScriptCache().put(cacheKey, JSON.stringify(value), ttlSeconds || 60);
+  } catch (e) {
+    // Cache failures should never block operational flows.
+  }
+}
+
 function _ensureProductionLedgerSchema(sheet) {
   if (!sheet) return;
   const target = String(CONFIG.SHEETS.PRODUCTION_LEDGER || '').trim().toUpperCase();
@@ -483,6 +610,25 @@ function _getSheetValuesCached(sheetName) {
   const values = sheet.getDataRange().getValues();
   _REQ_CACHE.values[sheetName] = values;
   return values;
+}
+
+function _getProductionLedgerOrderRows(orderRef) {
+  _ensureRequestCache();
+  const ref = String(orderRef || '').trim();
+  if (!ref) return [];
+  const cache = _REQ_CACHE.productionLedgerRowsByOrder || (_REQ_CACHE.productionLedgerRowsByOrder = {});
+  if (cache[ref]) return cache[ref];
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = _getSheetOrThrow(ss, CONFIG.SHEETS.PRODUCTION_LEDGER);
+  const data = _getSheetValuesCached(sheet.getName());
+  const rows = [];
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][CONFIG.PRODUCTION_LEDGER_COLS.ORDER_ID] || '').trim() !== ref) continue;
+    rows.push({ rowIndex: i + 1, row: data[i] });
+  }
+  cache[ref] = rows;
+  return rows;
 }
 
 // One-time/manual safeguard if production ledger schema drifted in old sheets.
@@ -695,7 +841,9 @@ function _getItemMasterMaps() {
     codeToName: {},
     codeToUom: {},
     codeToGroup: {},
-    codeToMinStock: {},
+    codeToMinStock: {},   // keyed by code — last-write-wins (legacy, kept for dashboards)
+    idToMinStock: {},     // keyed by item_id — correct for per-item alerts
+    idToItemInfo: {},     // keyed by item_id — { code, name, uom, minStock }
     codeToStatus: {},
     codeDisplayByNorm: {}
   };
@@ -733,6 +881,12 @@ function _getItemMasterMaps() {
     empty.codeDisplayByNorm[codeNorm] = code;
     if (isFinite(minStock) && minStock > 0) {
       empty.codeToMinStock[codeNorm] = minStock;
+      // Per item_id: correct for duplicate-code items (e.g. 3x ST27 with different ids)
+      empty.idToMinStock[idNorm] = minStock;
+      empty.idToItemInfo[idNorm] = {
+        id: id, code: code, codeNorm: codeNorm,
+        name: name || code, uom: uom, minStock: minStock
+      };
     }
   }
 
@@ -759,6 +913,14 @@ function _appendSheetCacheRow(sheetName, row) {
   _REQ_CACHE.values[name].push(row);
 }
 
+function _setSheetCacheRow(sheetName, rowIndex, row) {
+  _ensureRequestCache();
+  const name = String(sheetName || '').trim();
+  const idx = Number(rowIndex) - 1;
+  if (!name || !_REQ_CACHE.values[name] || !isFinite(idx) || idx < 0) return;
+  _REQ_CACHE.values[name][idx] = row;
+}
+
 function _getSheetByNameLoose(ss, sheetName) {
   if (!ss || !sheetName) return null;
   const direct = ss.getSheetByName(sheetName);
@@ -780,6 +942,10 @@ function _deleteSheetCacheRow(sheetName, rowIndex) {
   const idx = Number(rowIndex) - 1;
   if (!isFinite(idx) || idx < 0 || idx >= _REQ_CACHE.values[name].length) return;
   _REQ_CACHE.values[name].splice(idx, 1);
+  if (name === CONFIG.SHEETS.INVENTORY) {
+    delete _REQ_CACHE.inventoryUsageSummaryByBin;
+    delete _REQ_CACHE.inventoryUsageSummaryByBinSet;
+  }
 }
 
 function _clearSheetCache(sheetName) {
@@ -788,6 +954,64 @@ function _clearSheetCache(sheetName) {
   if (!name) return;
   delete _REQ_CACHE.values[name];
   delete _REQ_CACHE.headers[name];
+  if (name === CONFIG.SHEETS.BATCH) {
+    delete _REQ_CACHE.batchMasterMaps;
+  }
+  if (name === CONFIG.SHEETS.BIN) {
+    delete _REQ_CACHE.binMasterMetaContext;
+    delete _REQ_CACHE.inventoryUsageSummaryByBin;
+    delete _REQ_CACHE.inventoryUsageSummaryByBinSet;
+  }
+  if (name === CONFIG.SHEETS.INVENTORY) {
+    delete _REQ_CACHE.inventoryUsageSummaryByBin;
+    delete _REQ_CACHE.inventoryUsageSummaryByBinSet;
+  }
+  if (name === CONFIG.SHEETS.PRODUCTION_LEDGER) {
+    delete _REQ_CACHE.productionLedgerRowsByOrder;
+  }
+  _clearScriptCachesForSheet(name);
+}
+
+function _clearScriptCaches(keys) {
+  if (!keys || keys.length === 0) return;
+  try {
+    CacheService.getScriptCache().removeAll(keys);
+  } catch (e) {
+    // Persistent cache is an optimization only; operational writes must continue.
+  }
+}
+
+function _clearScriptCachesForSheet(sheetName) {
+  const name = String(sheetName || '').trim();
+  const keys = [];
+
+  if (name === CONFIG.SHEETS.BIN || name === CONFIG.SHEETS.RACK || name === CONFIG.SHEETS.LOCATION_MASTER) {
+    keys.push('BINS_FAST_V3', 'BINS_V6', 'LOCATIONS_MASTER_V1');
+  }
+
+  if (name === CONFIG.SHEETS.PRODUCTION_LEDGER) {
+    keys.push('ACTIVE_PRODUCTION_ORDERS_V1');
+  }
+
+  if (name === CONFIG.SHEETS.INVENTORY) {
+    keys.push('ACTIVE_PRODUCTION_ORDERS_V1');
+  }
+
+  if (name === CONFIG.SHEETS.PACKING_VERSION_MASTER || name === CONFIG.SHEETS.INVENTORY) {
+    keys.push('PACKING_MATERIAL_DASHBOARD_V1', 'PACKING_MATERIAL_DASHBOARD_V2');
+  }
+
+  _clearScriptCaches(keys);
+}
+
+function _clearInwardLookupCaches(itemCodes) {
+  const keys = [];
+  (itemCodes || []).forEach(function (code) {
+    const norm = String(code || '').trim().toUpperCase();
+    if (!norm) return;
+    keys.push('INWARD_NEXT_VERSION_V4_' + norm);
+  });
+  _clearScriptCaches(keys);
 }
 
 function getScriptUrl() {
@@ -820,11 +1044,165 @@ function getItemIdByCode(itemCode) {
   return item ? item.id : null;
 }
 
+function _findHeaderColumnLoose(headers, candidates) {
+  const wanted = (candidates || []).map(function (c) {
+    return String(c || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+  });
+  for (let i = 0; i < headers.length; i++) {
+    const key = String(headers[i] || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (wanted.indexOf(key) !== -1) return i;
+  }
+  return -1;
+}
+
+function _findMinStockSourceHeader_(sourceData) {
+  const codeHeaders = ['ITEM CODE', 'ITEM_CODE', 'CODE', 'ITEMCODE', 'ITEM NO', 'ITEM'];
+  const minHeaders = [
+    'MINIMUM',
+    'MINUMUM',
+    'MINIMUM STOCK',
+    'MINUMUM STOCK',
+    'MINIMUM STOCK LEVEL',
+    'MINUMUM STOCK LEVEL',
+    'MIN_STOCK',
+    'MIN STOCK',
+    'MIN_STOCK_LEVEL',
+    'MIN LEVEL',
+    'MINIMUM LEVEL',
+    'REORDER LEVEL'
+  ];
+  const maxRows = Math.min(sourceData.length, 10);
+  for (let r = 0; r < maxRows; r++) {
+    const headers = sourceData[r] || [];
+    const codeCol = _findHeaderColumnLoose(headers, codeHeaders);
+    const minCol = _findHeaderColumnLoose(headers, minHeaders);
+    if (codeCol >= 0 && minCol >= 0) {
+      return { headerRow: r, codeCol: codeCol, minCol: minCol };
+    }
+  }
+  return null;
+}
+
+function previewMinStockUpdateFromSheet(sheetName) {
+  return protect(function () {
+    requireRole(SECURITY.ROLES.MANAGER);
+    return _buildMinStockUpdatePlan_(sheetName || 'Min_Stock_Update');
+  });
+}
+
+function bulkUpdateMinStockFromSheet(sheetName) {
+  return withScriptLock(function () {
+    protect(function () { return requireRole(SECURITY.ROLES.MANAGER); });
+    const plan = _buildMinStockUpdatePlan_(sheetName || 'Min_Stock_Update');
+    if (!plan.updates || plan.updates.length === 0) {
+      return {
+        success: false,
+        updated: 0,
+        missing: plan.missing || [],
+        skipped: plan.skipped || [],
+        message: 'No matching min-stock rows found to update.'
+      };
+    }
+
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const itemSheet = _getSheetOrThrow(ss, CONFIG.SHEETS.ITEM);
+    const minCol = _getItemSheetColumnMap(itemSheet).MIN_STOCK_LEVEL + 1;
+    plan.updates.forEach(function (u) {
+      itemSheet.getRange(u.itemMasterRow, minCol).setValue(u.newMinStock);
+      _updateSheetCacheCell(CONFIG.SHEETS.ITEM, u.itemMasterRow, minCol, u.newMinStock);
+    });
+    _clearSheetCache(CONFIG.SHEETS.ITEM);
+
+    return {
+      success: true,
+      updated: plan.updates.length,
+      missing: plan.missing,
+      skipped: plan.skipped,
+      message: 'Updated min stock for ' + plan.updates.length + ' item(s).'
+    };
+  });
+}
+
+function _buildMinStockUpdatePlan_(sheetName) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sourceSheet = _getSheetOrThrow(ss, sheetName || 'Min_Stock_Update');
+  const itemSheet = _getSheetOrThrow(ss, CONFIG.SHEETS.ITEM);
+  const sourceData = sourceSheet.getDataRange().getValues();
+  if (sourceData.length < 2) {
+    return { updates: [], missing: [], skipped: ['Source sheet has no data rows.'] };
+  }
+
+  const header = _findMinStockSourceHeader_(sourceData);
+  if (!header) {
+    const sampleHeaders = sourceData.slice(0, Math.min(sourceData.length, 3)).map(function (row, idx) {
+      return 'Row ' + (idx + 1) + ': ' + (row || []).filter(String).join(' | ');
+    }).join(' ; ');
+    throw new Error('Source sheet must have Item Code and Minimum/Min Stock columns. Found: ' + sampleHeaders);
+  }
+  const codeCol = header.codeCol;
+  const minCol = header.minCol;
+
+  const itemCols = _getItemSheetColumnMap(itemSheet);
+  const itemData = _getSheetValuesCached(itemSheet.getName());
+  const rowByCode = {};
+  for (let i = 1; i < itemData.length; i++) {
+    const code = String(itemData[i][itemCols.ITEM_CODE] || '').trim().toUpperCase();
+    if (!code) continue;
+    rowByCode[code] = i + 1;
+  }
+
+  const updates = [];
+  const missing = [];
+  const skipped = [];
+  const seen = {};
+  for (let r = header.headerRow + 1; r < sourceData.length; r++) {
+    const code = String(sourceData[r][codeCol] || '').trim().toUpperCase();
+    const min = Number(sourceData[r][minCol]);
+    if (!code) continue;
+    if (!isFinite(min) || min < 0) {
+      skipped.push('Row ' + (r + 1) + ' ' + code + ': invalid minimum stock');
+      continue;
+    }
+    if (seen[code]) {
+      skipped.push('Row ' + (r + 1) + ' ' + code + ': duplicate in update sheet');
+      continue;
+    }
+    seen[code] = true;
+
+    const itemMasterRow = rowByCode[code];
+    if (!itemMasterRow) {
+      missing.push(code);
+      continue;
+    }
+    updates.push({ itemCode: code, itemMasterRow: itemMasterRow, newMinStock: min });
+  }
+
+  return { updates: updates, missing: missing, skipped: skipped };
+}
+
 function _getItemCodeById(itemId) {
   if (!itemId) return null;
   const targetId = String(itemId || '').trim().toUpperCase();
   const maps = _getItemMasterMaps();
   return maps.idToCode[targetId] || null;
+}
+
+function _getCanonicalItemCode(itemCode, itemId) {
+  const rawCode = String(itemCode || '').trim();
+  const rawId = String(itemId || '').trim();
+  const maps = _getItemMasterMaps();
+
+  if (rawId) {
+    const byId = maps.idToCode[rawId.toUpperCase()];
+    if (byId) return String(byId || '').trim();
+  }
+
+  if (rawCode) {
+    const byCode = maps.codeDisplayByNorm[rawCode.toUpperCase()];
+    if (byCode) return String(byCode || '').trim();
+  }
+
+  return rawCode ? rawCode.toUpperCase() : '';
 }
 
 
@@ -863,6 +1241,10 @@ function getRacksData() {
  */
 function getLocationsFromMaster() {
   return _withRequestCache(function () {
+    const cacheKey = 'LOCATIONS_MASTER_V1';
+    const cached = _getScriptCacheJson(cacheKey);
+    if (cached) return cached;
+
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const sheet = ss.getSheetByName(CONFIG.SHEETS.LOCATION_MASTER);
     if (!sheet) return [];
@@ -876,6 +1258,7 @@ function getLocationsFromMaster() {
         });
       }
     }
+    _putScriptCacheJson(cacheKey, locs, 120);
     return locs;
   });
 }
@@ -883,8 +1266,64 @@ function getLocationsFromMaster() {
 /**
  * Get all bins with hierarchy (Site/Location from Rack)
  */
+function getBinsFast() {
+  return _withRequestCache(function () {
+    const cacheKey = 'BINS_FAST_V3';
+    const cached = _getScriptCacheJson(cacheKey);
+    if (cached) return cached;
+
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const binSheet = _getSheetOrThrow(ss, CONFIG.SHEETS.BIN);
+    const rackSheet = ss.getSheetByName(CONFIG.SHEETS.RACK);
+    const headerMap = _getSheetHeaderMap(binSheet);
+
+    const rackMap = {};
+    if (rackSheet) {
+      const rackData = _getSheetValuesCached(rackSheet.getName());
+      for (let i = 1; i < rackData.length; i++) {
+        const rackId = String(rackData[i][0] || '').trim();
+        if (!rackId) continue;
+        rackMap[rackId] = {
+          site: String(rackData[i][2] || '').trim(),
+          location: String(rackData[i][3] || '').trim()
+        };
+      }
+    }
+
+    const data = _getSheetValuesCached(binSheet.getName());
+    const binMetaMap = _buildBinMasterMetaMap(binSheet, data, headerMap);
+    const bins = [];
+
+    for (let i = 1; i < data.length; i++) {
+      const binId = String(data[i][0] || '').trim();
+      if (!binId) continue;
+      const rackRef = String(data[i][1] || '').trim();
+      const rackMeta = rackMap[rackRef] || { site: 'Main', location: 'Main' };
+      const meta = binMetaMap[binId] || {};
+      const capacityUom = _normalizeCapacityUom(meta.declaredCapacityUom || meta.capacityUom || 'KG');
+      const binCode = String(data[i][2] || binId).trim();
+
+      bins.push({
+        binId: binId,
+        binCode: binCode,
+        site: rackMeta.site,
+        location: rackMeta.location,
+        capacityUom: capacityUom,
+        displayLabel: binCode + ' (' + capacityUom + ')'
+      });
+    }
+
+    _putScriptCacheJson(cacheKey, bins, 300);
+    return bins;
+  });
+}
+
 function getBins() {
   return _withRequestCache(function () {
+    const cacheKey = 'BINS_V6';
+    const cached = _getScriptCacheJson(cacheKey);
+    if (cached) return cached;
+
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const binSheet = _getSheetOrThrow(ss, CONFIG.SHEETS.BIN);
     // Optional: check Rack sheet for hierarchy if Bins link to Racks
@@ -897,49 +1336,51 @@ function getBins() {
       for (let i = 1; i < rackData.length; i++) {
         const rackId = String(rackData[i][0]).trim(); // Rack ID (Col A)
         rackMap[rackId] = {
-          site: String(rackData[i][2]), // Site (Col C)
-          location: String(rackData[i][3]) // Location (Col D)
+          site: String(rackData[i][2] || '').trim(), // Site (Col C)
+          location: String(rackData[i][3] || '').trim() // Location (Col D)
         };
       }
     }
 
     const data = _getSheetValuesCached(binSheet.getName());
     const headerMap = _getSheetHeaderMap(binSheet);
-    const capIdx = (typeof headerMap['MAX_CAPACITY_KG'] === 'number')
-      ? headerMap['MAX_CAPACITY_KG']
-      : ((typeof headerMap['MAX_CAPACITY'] === 'number') ? headerMap['MAX_CAPACITY'] : 3);
-    const capUomIdx = (typeof headerMap['CAPACITY_UOM'] === 'number')
-      ? headerMap['CAPACITY_UOM']
-      : ((typeof headerMap['MAX_CAPACITY_UOM'] === 'number') ? headerMap['MAX_CAPACITY_UOM'] : null);
-    const qtyByBin = _getInventoryQtyByBinMap();
+    const binMetaMap = _buildBinMasterMetaMap(binSheet, data, headerMap);
+    const usageSummary = _getInventoryUsageSummaryByBin(binMetaMap);
     const bins = [];
 
     for (let i = 1; i < data.length; i++) {
       const binId = String(data[i][0] || '').trim();
       if (!binId) continue;
       const rackRef = String(data[i][1]).trim(); // Rack Ref (Col B)
+      const metaRow = binMetaMap[binId] || {};
+      const usage = usageSummary.byBin[binId] || { byUom: {}, hasInventory: false };
+      const metrics = _getBinCapacityMetrics(metaRow, usage);
       const binCode = data[i][2]; // Bin Code (Col C)
-      const maxCapacity = Number(data[i][capIdx]) || 0;
-      const currentUsage = Number(qtyByBin[binId] || 0);
-      const availableCapacity = (maxCapacity > 0) ? Math.max(0, maxCapacity - currentUsage) : 0;
-      const capacityUom = (capUomIdx === null)
-        ? 'KG'
-        : (String(data[i][capUomIdx] || 'KG').trim().toUpperCase() || 'KG');
+      const maxCapacity = Number(metrics.maxCapacity || 0);
+      const currentUsage = Number(metrics.currentUsage || 0);
+      const availableCapacity = Number(metrics.availableCapacity || 0);
+      const capacityUom = _normalizeCapacityUom(metaRow.declaredCapacityUom || metaRow.capacityUom || metrics.capacityUom || 'KG');
 
       // Resolve Site/Location from Rack Map or Defaults
-      const meta = rackMap[rackRef] || { site: 'Main', location: 'Main' };
+      const rackMeta = rackMap[rackRef] || { site: 'Main', location: 'Main' };
 
       bins.push({
         binId: binId,
         binCode: binCode,
-        site: meta.site,
-        location: meta.location,
+        site: rackMeta.site,
+        location: rackMeta.location,
         maxCapacity: maxCapacity,
         currentUsage: currentUsage,
         availableCapacity: availableCapacity,
-        capacityUom: capacityUom
+        capacityUom: capacityUom,
+        displayLabel: String(binCode || binId).trim() + ' (' + capacityUom + ')',
+        capacities: metaRow.capacities || {},
+        capacityLines: metrics.capacityLines || [],
+        utilizationPct: Number(metrics.utilizationPct || 0),
+        capacityWarning: String(metrics.capacityWarning || '')
       });
     }
+    _putScriptCacheJson(cacheKey, bins, 90);
     return bins;
   });
 }
@@ -1065,20 +1506,269 @@ function resolveBatchComposite(itemCode, batchNumber, lotNumber) {
 }
 
 function _getBatchById(batchId, itemCode) {
-  const id = String(batchId || '').trim();
-  if (!id) return null;
-  const code = String(itemCode || '').trim().toUpperCase();
+  const info = _resolveBatchReference(itemCode, batchId);
+  return (info && info.meta) ? info.meta : null;
+}
+
+function _getNextBatchMasterId(data) {
+  let maxId = 0;
+  const rows = Array.isArray(data) ? data : [];
+  for (let i = 1; i < rows.length; i++) {
+    const raw = String(rows[i][CONFIG.BATCH_COLS.BATCH_ID] || '').trim();
+    if (!/^\d+$/.test(raw)) continue;
+    const n = Number(raw);
+    if (isFinite(n) && n > maxId) maxId = n;
+  }
+  return String(maxId > 0 ? (maxId + 1) : new Date().getTime());
+}
+
+function _getBatchMasterMaps() {
+  _ensureRequestCache();
+  if (_REQ_CACHE.batchMasterMaps) return _REQ_CACHE.batchMasterMaps;
+
+  const maps = {
+    byId: {},
+    byItemAndId: {},
+    byItemAndNumber: {}
+  };
+
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName(CONFIG.SHEETS.BATCH);
-  if (!sheet) return null;
+  if (!sheet) {
+    _REQ_CACHE.batchMasterMaps = maps;
+    return maps;
+  }
+
   const data = _getSheetValuesCached(sheet.getName());
   for (let i = 1; i < data.length; i++) {
-    const rowId = String(data[i][CONFIG.BATCH_COLS.BATCH_ID] || '').trim();
-    if (rowId !== id) continue;
-    if (code && String(data[i][CONFIG.BATCH_COLS.ITEM_CODE] || '').trim().toUpperCase() !== code) continue;
-    return _buildBatchMetaFromRow(data[i]);
+    const row = data[i];
+    const itemCode = _getCanonicalItemCode(row[CONFIG.BATCH_COLS.ITEM_CODE]);
+    const batchId = String(row[CONFIG.BATCH_COLS.BATCH_ID] || '').trim();
+    const batchNumber = String(row[CONFIG.BATCH_COLS.BATCH_NUMBER] || batchId || '').trim();
+    if (!itemCode || (!batchId && !batchNumber)) continue;
+
+    const meta = _buildBatchMetaFromRow(row);
+    meta.itemCode = itemCode;
+    meta.batchId = batchId || batchNumber;
+    meta.batchNumber = batchNumber || batchId;
+    meta.rowIndex = i + 1;
+
+    const codeU = itemCode.toUpperCase();
+    const idU = String(meta.batchId || '').trim().toUpperCase();
+    const noU = String(meta.batchNumber || '').trim().toUpperCase();
+
+    if (idU) {
+      maps.byId[idU] = meta;
+      maps.byItemAndId[codeU + '||' + idU] = meta;
+    }
+    if (noU) {
+      maps.byItemAndNumber[codeU + '||' + noU] = meta;
+    }
   }
-  return null;
+
+  _REQ_CACHE.batchMasterMaps = maps;
+  return maps;
+}
+
+function _resolveBatchReference(itemCode, batchRef) {
+  const code = _getCanonicalItemCode(itemCode);
+  const ref = String(batchRef || '').trim();
+  const acceptedKeys = {};
+  if (ref) acceptedKeys[ref.toUpperCase()] = true;
+  if (!code || !ref) {
+    return {
+      itemCode: code,
+      batchId: ref,
+      batchNumber: ref,
+      acceptedKeys: acceptedKeys,
+      meta: null
+    };
+  }
+
+  const maps = _getBatchMasterMaps();
+  const codeU = code.toUpperCase();
+  const refU = ref.toUpperCase();
+  const meta = maps.byItemAndId[codeU + '||' + refU] ||
+    maps.byItemAndNumber[codeU + '||' + refU] ||
+    null;
+
+  if (meta) {
+    if (meta.batchId) acceptedKeys[String(meta.batchId).trim().toUpperCase()] = true;
+    if (meta.batchNumber) acceptedKeys[String(meta.batchNumber).trim().toUpperCase()] = true;
+    return {
+      itemCode: code,
+      batchId: String(meta.batchId || ref).trim(),
+      batchNumber: String(meta.batchNumber || ref).trim(),
+      acceptedKeys: acceptedKeys,
+      meta: meta
+    };
+  }
+
+  return {
+    itemCode: code,
+    batchId: ref,
+    batchNumber: ref,
+    acceptedKeys: acceptedKeys,
+    meta: null
+  };
+}
+
+function _getBatchDisplayNumber(itemCode, batchRef) {
+  const info = _resolveBatchReference(itemCode, batchRef);
+  return String((info && info.batchNumber) || batchRef || '').trim();
+}
+
+function _getDefaultInwardExpiryDate() {
+  return new Date(2030, 0, 31);
+}
+
+function _normalizeInwardExpiryDate(value) {
+  if (value instanceof Date && !isNaN(value.getTime())) {
+    if (value.getTime() === 0) return _getDefaultInwardExpiryDate();
+    return value;
+  }
+  if (typeof value === 'number') {
+    if (!isFinite(value) || value <= 0) return _getDefaultInwardExpiryDate();
+    const parsedNumberDate = new Date(value);
+    if (!isNaN(parsedNumberDate.getTime())) {
+      if (parsedNumberDate.getTime() === 0) return _getDefaultInwardExpiryDate();
+      return parsedNumberDate;
+    }
+  }
+  if (String(value || '').trim()) {
+    const parsed = new Date(value);
+    if (!isNaN(parsed.getTime())) {
+      if (parsed.getTime() === 0) return _getDefaultInwardExpiryDate();
+      return parsed;
+    }
+  }
+  return _getDefaultInwardExpiryDate();
+}
+
+function _isSameCalendarDate(a, b) {
+  if (!(a instanceof Date) || isNaN(a.getTime())) return false;
+  if (!(b instanceof Date) || isNaN(b.getTime())) return false;
+  return a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate();
+}
+
+function _isBatchMasterRowEmpty(row) {
+  const width = CONFIG.BATCH_COLS.IS_VERSION + 1;
+  const cells = Array.isArray(row) ? row : [];
+  for (let i = 0; i < width; i++) {
+    if (String(cells[i] || '').trim()) return false;
+  }
+  return true;
+}
+
+function _getNextBatchMasterWriteRow(data) {
+  const rows = Array.isArray(data) ? data : [];
+  for (let i = 1; i < rows.length; i++) {
+    if (_isBatchMasterRowEmpty(rows[i])) return i + 1;
+  }
+  return rows.length + 1;
+}
+
+function _upsertBatchMasterFromInward(itemCode, batchNumber, fields) {
+  const code = _getCanonicalItemCode(itemCode);
+  const batchNo = String(batchNumber || '').trim();
+  if (!code || !batchNo) return null;
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = _getSheetOrThrow(ss, CONFIG.SHEETS.BATCH);
+  const data = _getSheetValuesCached(sheet.getName());
+  const codeU = code.toUpperCase();
+  const batchU = batchNo.toUpperCase();
+  const rawExpiry = fields && fields.rawExpiryDate;
+  const hasExplicitExpiry = (rawExpiry instanceof Date && !isNaN(rawExpiry.getTime())) || !!String(rawExpiry || '').trim();
+  const expiryDate = _normalizeInwardExpiryDate((fields && fields.expiryDate) || rawExpiry);
+  const defaultExpiry = _getDefaultInwardExpiryDate();
+  const lotNo = String((fields && fields.lotNo) || '').trim();
+  const ginNo = String((fields && fields.ginNo) || '').trim();
+  const version = String((fields && fields.version) || '').trim().toUpperCase();
+
+  for (let i = 1; i < data.length; i++) {
+    const rowCode = String(data[i][CONFIG.BATCH_COLS.ITEM_CODE] || '').trim().toUpperCase();
+    const rowBatch = String(data[i][CONFIG.BATCH_COLS.BATCH_NUMBER] || data[i][CONFIG.BATCH_COLS.BATCH_ID] || '').trim().toUpperCase();
+    if (rowCode !== codeU || rowBatch !== batchU) continue;
+
+    const rowData = data[i].slice();
+    let changed = false;
+    let resolvedBatchId = String(rowData[CONFIG.BATCH_COLS.BATCH_ID] || '').trim();
+    if (!resolvedBatchId || resolvedBatchId.toUpperCase() === batchU) {
+      resolvedBatchId = _getNextBatchMasterId(data);
+      rowData[CONFIG.BATCH_COLS.BATCH_ID] = resolvedBatchId;
+      changed = true;
+    }
+    if (!String(rowData[CONFIG.BATCH_COLS.ITEM_CODE] || '').trim()) {
+      rowData[CONFIG.BATCH_COLS.ITEM_CODE] = code;
+      changed = true;
+    }
+    if (!String(rowData[CONFIG.BATCH_COLS.BATCH_NUMBER] || '').trim()) {
+      rowData[CONFIG.BATCH_COLS.BATCH_NUMBER] = batchNo;
+      changed = true;
+    }
+    const existingExpiry = rowData[CONFIG.BATCH_COLS.BATCH_EXP_DATE];
+    const parsedExistingExpiry = existingExpiry ? new Date(existingExpiry) : null;
+    if (!existingExpiry) {
+      rowData[CONFIG.BATCH_COLS.BATCH_EXP_DATE] = expiryDate;
+      changed = true;
+    } else if (hasExplicitExpiry && parsedExistingExpiry instanceof Date && !isNaN(parsedExistingExpiry.getTime()) &&
+      _isSameCalendarDate(parsedExistingExpiry, defaultExpiry) &&
+      !_isSameCalendarDate(parsedExistingExpiry, expiryDate)) {
+      rowData[CONFIG.BATCH_COLS.BATCH_EXP_DATE] = expiryDate;
+      changed = true;
+    }
+    if (lotNo && !String(rowData[CONFIG.BATCH_COLS.LOT_NUMBER] || '').trim()) {
+      rowData[CONFIG.BATCH_COLS.LOT_NUMBER] = lotNo;
+      changed = true;
+    }
+    if (ginNo && !String(rowData[CONFIG.BATCH_COLS.GIN_NO] || '').trim()) {
+      rowData[CONFIG.BATCH_COLS.GIN_NO] = ginNo;
+      changed = true;
+    }
+    if (version && !String(rowData[CONFIG.BATCH_COLS.VERSION] || '').trim()) {
+      rowData[CONFIG.BATCH_COLS.VERSION] = version;
+      changed = true;
+    }
+    if (!String(rowData[CONFIG.BATCH_COLS.QUALITY_STATUS] || '').trim()) {
+      rowData[CONFIG.BATCH_COLS.QUALITY_STATUS] = 'PENDING';
+      changed = true;
+    }
+
+    if (changed) {
+      const width = Math.max(rowData.length, CONFIG.BATCH_COLS.IS_VERSION + 1);
+      while (rowData.length < width) rowData.push('');
+      sheet.getRange(i + 1, 1, 1, width).setValues([rowData.slice(0, width)]);
+      _setSheetCacheRow(CONFIG.SHEETS.BATCH, i + 1, rowData.slice(0, width));
+      delete _REQ_CACHE.batchMasterMaps;
+      _clearScriptCachesForSheet(CONFIG.SHEETS.BATCH);
+    }
+    return _buildBatchMetaFromRow(rowData);
+  }
+
+  const newBatchId = _getNextBatchMasterId(data);
+  const newRow = [];
+  newRow[CONFIG.BATCH_COLS.BATCH_ID] = newBatchId;
+  newRow[CONFIG.BATCH_COLS.ITEM_CODE] = code;
+  newRow[CONFIG.BATCH_COLS.BATCH_NUMBER] = batchNo;
+  newRow[CONFIG.BATCH_COLS.BATCH_EXP_DATE] = expiryDate;
+  newRow[CONFIG.BATCH_COLS.LOT_NUMBER] = lotNo;
+  newRow[CONFIG.BATCH_COLS.GIN_NO] = ginNo;
+  newRow[CONFIG.BATCH_COLS.QUALITY_DATE] = '';
+  newRow[CONFIG.BATCH_COLS.QUALITY_STATUS] = 'PENDING';
+  newRow[CONFIG.BATCH_COLS.VERSION] = version || '';
+  newRow[CONFIG.BATCH_COLS.VERSION_PARENT_ID] = '';
+  newRow[CONFIG.BATCH_COLS.IS_VERSION] = '';
+  const width = CONFIG.BATCH_COLS.IS_VERSION + 1;
+  while (newRow.length < width) newRow.push('');
+  const writeRow = _getNextBatchMasterWriteRow(data);
+  sheet.getRange(writeRow, 1, 1, width).setValues([newRow.slice(0, width)]);
+  _setSheetCacheRow(CONFIG.SHEETS.BATCH, writeRow, newRow.slice(0, width));
+  delete _REQ_CACHE.batchMasterMaps;
+  _clearScriptCachesForSheet(CONFIG.SHEETS.BATCH);
+  return _buildBatchMetaFromRow(newRow);
 }
 
 function getItems() {
@@ -1122,33 +1812,75 @@ function getBatches() {
   });
 }
 
+function getBatchesForItem(itemCode) {
+  return protect(function () {
+    const code = String(itemCode || '').trim().toUpperCase();
+    if (!code) return [];
+
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName(CONFIG.SHEETS.BATCH);
+    if (!sheet) return [];
+
+    const data = _getSheetValuesCached(sheet.getName());
+    const seen = {};
+    const batches = [];
+
+    for (let i = 1; i < data.length; i++) {
+      const rowCode = String(data[i][CONFIG.BATCH_COLS.ITEM_CODE] || '').trim().toUpperCase();
+      if (rowCode !== code) continue;
+
+      const batchNo = String(
+        data[i][CONFIG.BATCH_COLS.BATCH_NUMBER] ||
+        data[i][CONFIG.BATCH_COLS.BATCH_ID] ||
+        ''
+      ).trim();
+      if (!batchNo || seen[batchNo]) continue;
+
+      seen[batchNo] = true;
+      batches.push(batchNo);
+    }
+
+    batches.sort(function (a, b) { return String(a).localeCompare(String(b)); });
+    return batches;
+  });
+}
+
 function getRacks() {
   return _withRequestCache(function () {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const rackSheet = ss.getSheetByName(CONFIG.SHEETS.RACK);
     const binSheet = ss.getSheetByName(CONFIG.SHEETS.BIN);
-    const invSheet = ss.getSheetByName(CONFIG.SHEETS.INVENTORY);
 
     if (!rackSheet || !binSheet) return [];
 
     // Load all data
     const rackData = _getSheetValuesCached(rackSheet.getName());
     const binData = _getSheetValuesCached(binSheet.getName());
-    const invData = invSheet ? _getSheetValuesCached(invSheet.getName()) : [];
+    const binColMap = _getSheetHeaderMap(binSheet);
+    const binMetaMap = _buildBinMasterMetaMap(binSheet, binData, binColMap);
+    const usageSummary = _getInventoryUsageSummaryByBin(binMetaMap);
 
     // Build bin map: bin_id -> { max_capacity, items[] }
     const binMap = {};
     for (let i = 1; i < binData.length; i++) {
       const binId = String(binData[i][0] || '').trim();
       if (!binId) continue;
-      const binCode = binData[i][2] || '';
-      const maxCapacity = Number(binData[i][3]) || 0;
+      const meta = binMetaMap[binId] || {};
+      const binCode = meta.binCode || binData[i][2] || '';
+      const usage = usageSummary.byBin[binId] || { byUom: {}, hasInventory: false };
+      const metrics = _getBinCapacityMetrics(meta, usage);
+      const maxCapacity = Number(metrics.maxCapacity || 0);
       binMap[binId] = {
         binId: binId,
         code: binCode,  // Frontend expects 'code' not 'binCode'
         binCode: binCode,
         maxCapacity: maxCapacity,
-        currentUsage: 0,
+        currentUsage: Number(metrics.currentUsage || 0),
+        capacityUom: _normalizeCapacityUom(meta.declaredCapacityUom || meta.capacityUom || metrics.capacityUom || 'KG'),
+        capacities: meta.capacities || {},
+        capacityLines: metrics.capacityLines || [],
+        utilizationPct: Number(metrics.utilizationPct || 0),
+        capacityWarning: String(metrics.capacityWarning || ''),
         items: []
       };
     }
@@ -1161,7 +1893,8 @@ function getRacks() {
       // For now, we'll populate this from bin data column 1 (rack reference)
     }
 
-    // Populate inventory items into bins
+    const invSheet = ss.getSheetByName(CONFIG.SHEETS.INVENTORY);
+    const invData = invSheet ? _getSheetValuesCached(invSheet.getName()) : [];
     if (invData.length > 0) {
       for (let i = 1; i < invData.length; i++) {
         const row = invData[i];
@@ -1171,7 +1904,6 @@ function getRacks() {
         const qaStatus = String(row[CONFIG.INVENTORY_COLS.QUALITY_STATUS] || 'PENDING').trim();
 
         if (binId && binMap[binId] && itemCode && qty > 0) {
-          binMap[binId].currentUsage += qty;
           binMap[binId].items.push({
             itemCode: itemCode,
             itemName: itemCode, // Use code as fallback name
@@ -1206,7 +1938,7 @@ function getRacks() {
           binObj.rackCode = rackCode;
           binObj.site = site;
           binObj.location = location;
-          binObj.available = binObj.maxCapacity - binObj.currentUsage;
+          binObj.available = Number((((binObj.capacityLines || [])[0] || {}).availableCapacity) || binObj.availableCapacity || Math.max(0, Number(binObj.maxCapacity || 0) - Number(binObj.currentUsage || 0)));
           rackBins.push(binObj);
         }
       }
@@ -1217,7 +1949,9 @@ function getRacks() {
         site: site,
         location: location,
         maxCapacity: maxCapacity,
-        currentUsage: rackBins.reduce((sum, b) => sum + b.currentUsage, 0),
+        currentUsage: rackBins.reduce(function (sum, b) {
+          return sum + Number(usageSummary.kgByBin[b.binId] || 0);
+        }, 0),
         bins: rackBins
       });
     }
@@ -1243,19 +1977,20 @@ function getAvailableStock(itemCode, batchId, binId) {
 function withScriptLock(callback) {
   _beginRequestCache();
   const lock = LockService.getScriptLock();
-  if (lock.tryLock(10000)) {
-    try {
-      return callback();
-    } catch (e) {
-      Logger.log('Transaction Error: ' + e.toString());
-      throw e;
-    } finally {
-      lock.releaseLock();
-      _endRequestCache();
+  let hasLock = false;
+  try {
+    lock.waitLock(30000);
+    hasLock = true;
+    return callback();
+  } catch (e) {
+    Logger.log('Transaction Error: ' + e.toString());
+    if (!hasLock) {
+      throw new Error('System is busy. Please try again.');
     }
-  } else {
+    throw e;
+  } finally {
+    if (hasLock) lock.releaseLock();
     _endRequestCache();
-    throw new Error('System is busy. Please try again.');
   }
 }
 
@@ -1319,6 +2054,8 @@ function _readInventoryState(itemCode, batchId, binId, version) {
   }
   const itemIdToCode = {};
   const searchBatch = String(batchId || '').trim().toUpperCase();
+  const batchInfo = searchBatch ? _resolveBatchReference(targetCode || rawTarget, batchId) : null;
+  const acceptedBatchKeys = batchInfo ? (batchInfo.acceptedKeys || {}) : null;
 
   // Resolve bin identifier to both ID and Code (handles legacy rows storing bin code)
   let searchBinRaw = String(binId || '').trim();
@@ -1362,7 +2099,7 @@ function _readInventoryState(itemCode, batchId, binId, version) {
     const itemMatch = matchesCode || matchesId || matchesRaw;
 
     const rowBatch = String(row[CONFIG.INVENTORY_COLS.BATCH_ID] || '').trim().toUpperCase();
-    const batchMatch = searchBatch ? (rowBatch === searchBatch) : true;
+    const batchMatch = searchBatch ? !!acceptedBatchKeys[rowBatch] : true;
 
     const rowBin = String(row[CONFIG.INVENTORY_COLS.BIN_ID] || '').trim().toUpperCase();
     const searchBinIdU = String(searchBinId || '').trim().toUpperCase();
@@ -1540,6 +2277,8 @@ function _resolveBatchIdFromInventory(itemCode, batchId, binId, context) {
   const code = String(itemCode || '').trim();
   if (!code) throw new Error(`${context} requires Item Code`);
   const requested = String(batchId || '').trim();
+  const requestedInfo = requested ? _resolveBatchReference(code, requested) : null;
+  const requestedKeys = requestedInfo ? (requestedInfo.acceptedKeys || {}) : {};
 
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = _getSheetOrThrow(ss, CONFIG.SHEETS.INVENTORY);
@@ -1566,7 +2305,6 @@ function _resolveBatchIdFromInventory(itemCode, batchId, binId, context) {
   }
 
   const codeU = code.toUpperCase();
-  const requestedU = String(requested).toUpperCase();
   const batchMap = {};
   let matchedRequested = false;
 
@@ -1589,11 +2327,17 @@ function _resolveBatchIdFromInventory(itemCode, batchId, binId, context) {
     const rowBatchU = rowBatchRaw.toUpperCase();
     if (!rowBatchRaw) continue;
 
-    if (requestedU && rowBatchU === requestedU) matchedRequested = true;
-    if (!batchMap[rowBatchU]) batchMap[rowBatchU] = rowBatchRaw;
+    const resolvedRow = _resolveBatchReference(code, rowBatchRaw);
+    const canonicalBatchId = String((resolvedRow && resolvedRow.batchId) || rowBatchRaw).trim();
+    const canonicalBatchU = canonicalBatchId.toUpperCase();
+
+    if (requested && (requestedKeys[rowBatchU] || requestedKeys[canonicalBatchU])) matchedRequested = true;
+    if (!batchMap[canonicalBatchU]) batchMap[canonicalBatchU] = canonicalBatchId;
   }
 
-  if (requestedU && matchedRequested) return requested;
+  if (requested && matchedRequested) {
+    return String((requestedInfo && requestedInfo.batchId) || requested).trim();
+  }
   const keys = Object.keys(batchMap);
   if (keys.length === 1) return batchMap[keys[0]];
   if (keys.length > 1) {
@@ -2238,6 +2982,8 @@ function _persistInventoryStatesBatch(changes, sheet) {
     group = [idx];
   }
   flushGroup();
+  delete _REQ_CACHE.inventoryUsageSummaryByBin;
+  delete _REQ_CACHE.inventoryUsageSummaryByBinSet;
 }
 
 function _persistInventoryState(rowIndex, newQty, sheet) {
@@ -2317,13 +3063,13 @@ function _createInventoryRow(params) {
   row[CONFIG.INVENTORY_COLS.LOCATION] = params.location || 'Main';
   row[CONFIG.INVENTORY_COLS.TOTAL_QUANTITY] = params.quantity;
   if (CONFIG.INVENTORY_COLS.UOM !== undefined) {
-    row[CONFIG.INVENTORY_COLS.UOM] = _getItemUomCode(params.itemCode || params.itemId || '');
+    row[CONFIG.INVENTORY_COLS.UOM] = String(params.uom || _getItemUomCode(params.itemCode || params.itemId || '') || 'KG').trim().toUpperCase();
   }
   if (CONFIG.INVENTORY_COLS.LOT_NO !== undefined) {
     row[CONFIG.INVENTORY_COLS.LOT_NO] = params.lotNo || '';
   }
   if (CONFIG.INVENTORY_COLS.EXPIRY_DATE !== undefined) {
-    row[CONFIG.INVENTORY_COLS.EXPIRY_DATE] = params.expiryDate || '';
+    row[CONFIG.INVENTORY_COLS.EXPIRY_DATE] = _normalizeInwardExpiryDate(params.expiryDate);
   }
   row[CONFIG.INVENTORY_COLS.LAST_UPDATED] = new Date();
   if (CONFIG.INVENTORY_COLS.INWARD_DATE !== undefined) {
@@ -2339,6 +3085,55 @@ function _createInventoryRow(params) {
     return { id: id, rowIndex: rowIndex };
   }
   return id;
+}
+
+function _appendInventoryRowsBatch(paramsList, sheet) {
+  if (!paramsList || paramsList.length === 0) return [];
+  const targetSheet = sheet || _getSheetOrThrow(SpreadsheetApp.getActiveSpreadsheet(), CONFIG.SHEETS.INVENTORY);
+  const width = CONFIG.INVENTORY_COLS.LAST_TRANSFER_DATE + 1;
+  const startRow = targetSheet.getLastRow() + 1;
+  const now = new Date();
+  const rows = [];
+  const out = [];
+
+  paramsList.forEach(function (params, idx) {
+    _validateBinExists(params.binId);
+    if (!params.version) throw new Error('Inventory version required');
+    if (!params.ginNo) throw new Error('Bill No. required for inventory');
+    if (!params.itemCode || !params.batchId) throw new Error('Item Code and Batch No required for inventory');
+
+    const row = [];
+    const id = 'INV-' + new Date().getTime() + '-' + Math.floor(Math.random() * 1000) + '-' + idx;
+    row[CONFIG.INVENTORY_COLS.INVENTORY_ID] = id;
+    row[CONFIG.INVENTORY_COLS.ITEM_ID] = params.itemId || params.itemCode;
+    row[CONFIG.INVENTORY_COLS.ITEM_CODE_CACHE] = params.itemCode || params.itemId;
+    row[CONFIG.INVENTORY_COLS.BATCH_ID] = params.batchId;
+    row[CONFIG.INVENTORY_COLS.GIN_NO] = params.ginNo;
+    row[CONFIG.INVENTORY_COLS.VERSION] = params.version || '';
+    row[CONFIG.INVENTORY_COLS.QUALITY_STATUS] = params.qualityStatus || 'PENDING';
+    row[CONFIG.INVENTORY_COLS.QUALITY_DATE] = params.qualityDate || '';
+    row[CONFIG.INVENTORY_COLS.BIN_ID] = params.binId;
+    row[CONFIG.INVENTORY_COLS.SITE] = params.site || 'Main';
+    row[CONFIG.INVENTORY_COLS.LOCATION] = params.location || 'Main';
+    row[CONFIG.INVENTORY_COLS.TOTAL_QUANTITY] = params.quantity;
+    row[CONFIG.INVENTORY_COLS.UOM] = String(params.uom || _getItemUomCode(params.itemCode || params.itemId || '') || 'KG').trim().toUpperCase();
+    row[CONFIG.INVENTORY_COLS.LOT_NO] = params.lotNo || '';
+    row[CONFIG.INVENTORY_COLS.EXPIRY_DATE] = _normalizeInwardExpiryDate(params.expiryDate);
+    row[CONFIG.INVENTORY_COLS.LAST_UPDATED] = params.overrideDate ? new Date(params.overrideDate) : now;
+    row[CONFIG.INVENTORY_COLS.INWARD_DATE] = params.inwardDate ? new Date(params.inwardDate) : now;
+    row[CONFIG.INVENTORY_COLS.LAST_TRANSFER_DATE] = params.lastTransferDate || '';
+    while (row.length < width) row.push('');
+    rows.push(row.slice(0, width));
+    out.push({ id: id, rowIndex: startRow + idx, row: row.slice(0, width) });
+  });
+
+  targetSheet.getRange(startRow, 1, rows.length, width).setValues(rows);
+  rows.forEach(function (row) {
+    _appendSheetCacheRow(CONFIG.SHEETS.INVENTORY, row);
+  });
+  delete _REQ_CACHE.inventoryUsageSummaryByBin;
+  delete _REQ_CACHE.inventoryUsageSummaryByBinSet;
+  return out;
 }
 
 function _appendMovementLog(data) {
@@ -2359,19 +3154,9 @@ function _appendMovementLog(data) {
 function _getValidatedItemId(itemCode) {
   if (!itemCode) throw new Error('Item Code required');
 
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = _getSheetOrThrow(ss, CONFIG.SHEETS.ITEM);
-  const data = _getSheetValuesCached(sheet.getName());
-
-  // Search Item_Master for matching Item_Code
-  for (let i = 1; i < data.length; i++) { // Skip header
-    const rowItemCode = String(data[i][1]); // Assuming Item_Code is column B (index 1)
-    if (rowItemCode.toUpperCase() === String(itemCode).toUpperCase()) {
-      const itemId = String(data[i][0]); // Item_ID is column A (index 0)
-      if (!itemId) throw new Error(`Item ${itemCode} has no ID in master`);
-      return itemId;
-    }
-  }
+  const maps = _getItemMasterMaps();
+  const itemId = maps.codeToId[String(itemCode).trim().toUpperCase()];
+  if (itemId) return String(itemId);
 
   throw new Error(`Invalid Item Code: ${itemCode}. Not found in Item_Master.`);
 }
@@ -2385,17 +3170,8 @@ function _getValidatedItemId(itemCode) {
 function _validateBinExists(binId) {
   if (!binId) throw new Error('Bin ID required');
 
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = _getSheetOrThrow(ss, CONFIG.SHEETS.BIN);
-  const data = _getSheetValuesCached(sheet.getName());
-
-  // Search Bin_Master for matching Bin_ID
-  for (let i = 1; i < data.length; i++) { // Skip header
-    const rowBinId = String(data[i][0]); // Assuming Bin_ID is column A
-    if (rowBinId === String(binId)) {
-      return true;
-    }
-  }
+  const ctx = _getBinMasterMetaContext();
+  if ((ctx.metaMap || {})[String(binId).trim()]) return true;
 
   throw new Error(`Invalid Bin ID: ${binId}. Bin does not exist in Bin_Master.`);
 }
@@ -2601,6 +3377,214 @@ function _convertToKg(itemCode, qty, inputUom) {
   return num;
 }
 
+function _normalizeCapacityUom(value) {
+  const raw = String(value || 'KG').trim().toUpperCase();
+  if (!raw) return 'KG';
+  if (['KG', 'KGS', 'KILOGRAM', 'KILOGRAMS'].indexOf(raw) >= 0) return 'KG';
+  if (['NOS', 'NO', 'PCS', 'PC', 'EA', 'EACH', 'UNIT', 'UNITS', 'PIECE', 'PIECES'].indexOf(raw) >= 0) return 'NOS';
+  if (['L', 'LTR', 'LITRE', 'LITRES', 'LITER', 'LITERS'].indexOf(raw) >= 0) return 'L';
+  return raw;
+}
+
+function _getSupportedCapacityUoms() {
+  return ['KG', 'NOS', 'L'];
+}
+
+function _pickPrimaryCapacityUom(capacities, usageByUom) {
+  const caps = capacities || {};
+  const usageMap = usageByUom || {};
+  const ordered = _getSupportedCapacityUoms().filter(function (uom) {
+    return Number(caps[uom] || 0) > 0;
+  });
+  if (ordered.length === 0) return 'KG';
+
+  let best = ordered[0];
+  let bestPct = -1;
+  ordered.forEach(function (uom) {
+    const cap = Number(caps[uom] || 0);
+    const used = Number((((usageMap || {})[uom] || {}).qty) || 0);
+    const pct = cap > 0 ? (used / cap) : 0;
+    if (pct > bestPct) {
+      best = uom;
+      bestPct = pct;
+    }
+  });
+  return best;
+}
+
+function _extractBinCapacitiesFromRow(row, colMap) {
+  const cols = colMap || {};
+  const raw = row || [];
+  const capacities = {};
+  const legacyCapIdx = typeof cols['MAX_CAPACITY_KG'] === 'number'
+    ? cols['MAX_CAPACITY_KG']
+    : (typeof cols['MAX_CAPACITY'] === 'number' ? cols['MAX_CAPACITY'] : 5);
+  const legacyCapUomIdx = typeof cols['CAPACITY_UOM'] === 'number'
+    ? cols['CAPACITY_UOM']
+    : (typeof cols['MAX_CAPACITY_UOM'] === 'number' ? cols['MAX_CAPACITY_UOM'] : 6);
+  const kgIdx = typeof cols['MAX_CAPACITY_KG'] === 'number' ? cols['MAX_CAPACITY_KG'] : null;
+  const nosIdx = typeof cols['MAX_CAPACITY_NOS'] === 'number' ? cols['MAX_CAPACITY_NOS'] : null;
+  const lIdx = typeof cols['MAX_CAPACITY_L'] === 'number' ? cols['MAX_CAPACITY_L'] : null;
+  const hasDedicatedCols = kgIdx !== null || nosIdx !== null || lIdx !== null;
+
+  if (kgIdx !== null) {
+    const kg = Number(raw[kgIdx]) || 0;
+    if (kg > 0) capacities.KG = kg;
+  }
+  if (nosIdx !== null) {
+    const nos = Number(raw[nosIdx]) || 0;
+    if (nos > 0) capacities.NOS = nos;
+  }
+  if (lIdx !== null) {
+    const liters = Number(raw[lIdx]) || 0;
+    if (liters > 0) capacities.L = liters;
+  }
+
+  const legacyCapacity = Number(raw[legacyCapIdx]) || 0;
+  const legacyUom = _normalizeCapacityUom(raw[legacyCapUomIdx] || 'KG');
+  if (legacyCapacity > 0 && (!hasDedicatedCols || !capacities[legacyUom])) {
+    capacities[legacyUom] = legacyCapacity;
+  }
+
+  return capacities;
+}
+
+function _getDeclaredBinCapacityUom(row, colMap, capacities) {
+  const cols = colMap || {};
+  const raw = row || [];
+  const explicitUomIdx = typeof cols['CAPACITY_UOM'] === 'number'
+    ? cols['CAPACITY_UOM']
+    : (typeof cols['MAX_CAPACITY_UOM'] === 'number' ? cols['MAX_CAPACITY_UOM'] : null);
+  const normalized = _normalizeCapacityUom(explicitUomIdx === null ? '' : raw[explicitUomIdx]);
+  if (!normalized) return '';
+  const caps = capacities || {};
+  if (Number(caps[normalized] || 0) > 0) return normalized;
+  return normalized;
+}
+
+function _getBinCapacityMetrics(meta, usageEntry) {
+  const capacities = (meta && meta.capacities) ? meta.capacities : {};
+  const usageByUom = (usageEntry && usageEntry.byUom) ? usageEntry.byUom : {};
+  const capacityLines = _getSupportedCapacityUoms()
+    .filter(function (uom) { return Number(capacities[uom] || 0) > 0; })
+    .map(function (uom) {
+      const maxCapacity = Number(capacities[uom] || 0);
+      const currentUsage = Number((((usageByUom || {})[uom] || {}).qty) || 0);
+      const availableCapacity = maxCapacity > 0 ? Math.max(0, maxCapacity - currentUsage) : 0;
+      const utilizationPct = maxCapacity > 0 ? Math.max(0, (currentUsage / maxCapacity) * 100) : 0;
+      return {
+        uom: uom,
+        maxCapacity: maxCapacity,
+        currentUsage: currentUsage,
+        availableCapacity: availableCapacity,
+        utilizationPct: utilizationPct
+      };
+    });
+
+  const primaryUom = _pickPrimaryCapacityUom(capacities, usageByUom);
+  const primaryLine = capacityLines.filter(function (line) {
+    return line.uom === primaryUom;
+  })[0] || {
+    uom: primaryUom,
+    maxCapacity: 0,
+    currentUsage: 0,
+    availableCapacity: 0,
+    utilizationPct: 0
+  };
+
+  return {
+    capacityLines: capacityLines,
+    capacityUom: primaryLine.uom,
+    maxCapacity: primaryLine.maxCapacity,
+    currentUsage: primaryLine.currentUsage,
+    availableCapacity: primaryLine.availableCapacity,
+    utilizationPct: primaryLine.utilizationPct,
+    usageByUom: usageByUom,
+    hasInventory: !!(usageEntry && usageEntry.hasInventory),
+    capacityWarning: ''
+  };
+}
+
+function _resolveBinCapacitySlot(meta, itemCode, inputUom) {
+  const capacities = (meta && meta.capacities) ? meta.capacities : {};
+  const configured = _getSupportedCapacityUoms().filter(function (uom) {
+    return Number(capacities[uom] || 0) > 0;
+  });
+  if (configured.length === 0) {
+    return { uom: '', capacity: 0, configuredUoms: [] };
+  }
+
+  const info = _getItemUomInfo(itemCode);
+  const candidates = [];
+  function pushCandidate(value) {
+    const normalized = _normalizeCapacityUom(value || '');
+    if (!normalized) return;
+    if (candidates.indexOf(normalized) === -1) candidates.push(normalized);
+  }
+
+  pushCandidate(inputUom);
+  pushCandidate(info.baseUom);
+  pushCandidate(info.altUom);
+
+  for (let i = 0; i < candidates.length; i++) {
+    const uom = candidates[i];
+    if (configured.indexOf(uom) >= 0) {
+      return { uom: uom, capacity: Number(capacities[uom] || 0), configuredUoms: configured };
+    }
+  }
+
+  const testFromUom = String(inputUom || info.baseUom || '').trim().toUpperCase() || String(info.baseUom || 'KG').trim().toUpperCase();
+  for (let j = 0; j < configured.length; j++) {
+    const targetUom = configured[j];
+    const probe = _convertItemQtyToTargetUom(itemCode, 1, testFromUom, targetUom);
+    if (isFinite(probe)) {
+      return { uom: targetUom, capacity: Number(capacities[targetUom] || 0), configuredUoms: configured };
+    }
+  }
+
+  return { uom: '', capacity: 0, configuredUoms: configured, missing: true };
+}
+
+function _convertItemQtyToTargetUom(itemCode, qty, inputUom, targetUom) {
+  const num = Number(qty);
+  if (!isFinite(num)) return NaN;
+
+  const info = _getItemUomInfo(itemCode);
+  const baseUom = String(info.baseUom || 'KG').trim().toUpperCase() || 'KG';
+  const fromUom = String(inputUom || baseUom).trim().toUpperCase() || baseUom;
+  const toUom = _normalizeCapacityUom(targetUom || baseUom);
+  const altUom = String(info.altUom || '').trim().toUpperCase();
+  const baseFamily = _normalizeCapacityUom(baseUom);
+  const fromFamily = _normalizeCapacityUom(fromUom);
+  const altFamily = _normalizeCapacityUom(altUom);
+
+  if (fromFamily === toUom) return num;
+
+  let qtyInBase = num;
+  if (fromFamily !== baseFamily) {
+    if (fromUom && altUom && fromFamily === altFamily) {
+      const altFactor = Number(info.factorToKg) || 1;
+      qtyInBase = num * altFactor;
+    } else {
+      const fromFactor = _getUomFactorToBase(fromUom, baseUom);
+      if (!(isFinite(fromFactor) && fromFactor > 0)) return NaN;
+      qtyInBase = num * fromFactor;
+    }
+  }
+
+  if (toUom === baseFamily) return qtyInBase;
+
+  if (toUom && altUom && toUom === altFamily) {
+    const altFactor = Number(info.factorToKg) || 1;
+    if (!(isFinite(altFactor) && altFactor > 0)) return NaN;
+    return qtyInBase / altFactor;
+  }
+
+  const toFactor = _getUomFactorToBase(toUom, baseUom);
+  if (!(isFinite(toFactor) && toFactor > 0)) return NaN;
+  return qtyInBase / toFactor;
+}
+
 function _getInventoryQtyByBinMap() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const invSheet = _getSheetOrThrow(ss, CONFIG.SHEETS.INVENTORY);
@@ -2615,92 +3599,311 @@ function _getInventoryQtyByBinMap() {
   return map;
 }
 
-function _getBinMasterMeta(binId, binSheet, binData, colMap) {
+function _buildBinMasterMetaMap(binSheet, binData, colMap) {
   const idIdx = typeof colMap['BIN_ID'] === 'number' ? colMap['BIN_ID'] : 0;
   const rackIdx = typeof colMap['RACK_ID'] === 'number' ? colMap['RACK_ID'] : 1;
-  const capIdx = typeof colMap['MAX_CAPACITY_KG'] === 'number'
-    ? colMap['MAX_CAPACITY_KG']
-    : (typeof colMap['MAX_CAPACITY'] === 'number' ? colMap['MAX_CAPACITY'] : 3);
   const statusIdx = typeof colMap['BIN_STATUS'] === 'number' ? colMap['BIN_STATUS'] : null;
+  const siteIdx = typeof colMap['SITE'] === 'number' ? colMap['SITE'] : 3;
+  const locationIdx = typeof colMap['LOCATION'] === 'number' ? colMap['LOCATION'] : 4;
+  const codeIdx = typeof colMap['BIN_CODE'] === 'number' ? colMap['BIN_CODE'] : 2;
+  const out = {};
 
   for (let i = 1; i < binData.length; i++) {
-    if (String(binData[i][idIdx] || '').trim() === String(binId || '').trim()) {
-      return {
-        rowIndex: i + 1,
-        rackId: String(binData[i][rackIdx] || '').trim(),
-        capacityKg: Number(binData[i][capIdx]) || 0,
-        statusIdx: statusIdx
-      };
-    }
+    const binId = String(binData[i][idIdx] || '').trim();
+    if (!binId) continue;
+    const capacities = _extractBinCapacitiesFromRow(binData[i], colMap);
+    const declaredUom = _getDeclaredBinCapacityUom(binData[i], colMap, capacities);
+    const primaryUom = declaredUom || _pickPrimaryCapacityUom(capacities, {});
+    out[binId] = {
+      rowIndex: i + 1,
+      rackId: String(binData[i][rackIdx] || '').trim(),
+      binCode: String(binData[i][codeIdx] || binId).trim(),
+      site: String(binData[i][siteIdx] || '').trim(),
+      location: String(binData[i][locationIdx] || '').trim(),
+      capacity: Number(capacities[primaryUom] || 0),
+      capacityUom: primaryUom,
+      declaredCapacityUom: declaredUom || primaryUom,
+      capacities: capacities,
+      statusIdx: statusIdx
+    };
   }
-  return null;
+
+  return out;
 }
 
-function _assertBinCapacity(binId, addQtyKg, binDeltaMap) {
+function _getInventoryUsageSummaryByBin(binMetaMap) {
+  _ensureRequestCache();
+  if (_REQ_CACHE.inventoryUsageSummaryByBin) return _REQ_CACHE.inventoryUsageSummaryByBin;
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const invSheet = _getSheetOrThrow(ss, CONFIG.SHEETS.INVENTORY);
+  const data = _getSheetValuesCached(invSheet.getName());
+  const byBin = {};
+  const kgByBin = {};
+  const kgUnknownByBin = {};
+
+  for (let i = 1; i < data.length; i++) {
+    const row = data[i];
+    const binId = String(row[CONFIG.INVENTORY_COLS.BIN_ID] || '').trim();
+    if (!binId) continue;
+
+    const qty = Number(row[CONFIG.INVENTORY_COLS.TOTAL_QUANTITY]) || 0;
+    if (!isFinite(qty) || qty <= 0) continue;
+
+    const itemCode = String(row[CONFIG.INVENTORY_COLS.ITEM_CODE_CACHE] || '').trim();
+    const rowUom = String(
+      (typeof CONFIG.INVENTORY_COLS.UOM === 'number' ? row[CONFIG.INVENTORY_COLS.UOM] : '') ||
+      _getItemUomCode(itemCode)
+    ).trim().toUpperCase() || _getItemUomCode(itemCode);
+
+    const meta = (binMetaMap && binMetaMap[binId]) ? binMetaMap[binId] : null;
+    if (meta) {
+      if (!byBin[binId]) {
+        byBin[binId] = {
+          byUom: {},
+          hasInventory: false,
+          rowCount: 0
+        };
+      }
+      byBin[binId].hasInventory = true;
+      byBin[binId].rowCount += 1;
+      Object.keys(meta.capacities || {}).forEach(function (targetUom) {
+        if (!byBin[binId].byUom[targetUom]) {
+          byBin[binId].byUom[targetUom] = { qty: 0, conversionMissCount: 0 };
+        }
+        const converted = _convertItemQtyToTargetUom(itemCode, qty, rowUom, targetUom);
+        if (isFinite(converted)) byBin[binId].byUom[targetUom].qty += converted;
+        else byBin[binId].byUom[targetUom].conversionMissCount += 1;
+      });
+    }
+
+    const kgQty = _convertItemQtyToTargetUom(itemCode, qty, rowUom, 'KG');
+    if (isFinite(kgQty)) {
+      kgByBin[binId] = (kgByBin[binId] || 0) + kgQty;
+    } else {
+      kgUnknownByBin[binId] = true;
+    }
+  }
+
+  _REQ_CACHE.inventoryUsageSummaryByBin = {
+    byBin: byBin,
+    kgByBin: kgByBin,
+    kgUnknownByBin: kgUnknownByBin
+  };
+  return _REQ_CACHE.inventoryUsageSummaryByBin;
+}
+
+function _getInventoryUsageSummaryForBinSet(binMetaMap, binSet, cacheKey) {
+  _ensureRequestCache();
+  const key = cacheKey || ('BIN_USAGE_SET_' + Object.keys(binSet || {}).sort().join('|'));
+  const cache = _REQ_CACHE.inventoryUsageSummaryByBinSet || (_REQ_CACHE.inventoryUsageSummaryByBinSet = {});
+  if (cache[key]) return cache[key];
+
+  const targets = binSet || {};
+  const hasTargets = Object.keys(targets).length > 0;
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const invSheet = _getSheetOrThrow(ss, CONFIG.SHEETS.INVENTORY);
+  const data = _getSheetValuesCached(invSheet.getName());
+  const byBin = {};
+  const kgByBin = {};
+  const kgUnknownByBin = {};
+
+  for (let i = 1; i < data.length; i++) {
+    const row = data[i];
+    const binId = String(row[CONFIG.INVENTORY_COLS.BIN_ID] || '').trim();
+    if (!binId || (hasTargets && !targets[binId])) continue;
+
+    const qty = Number(row[CONFIG.INVENTORY_COLS.TOTAL_QUANTITY]) || 0;
+    if (!isFinite(qty) || qty <= 0) continue;
+
+    const itemCode = String(row[CONFIG.INVENTORY_COLS.ITEM_CODE_CACHE] || '').trim();
+    const rowUom = String(
+      (typeof CONFIG.INVENTORY_COLS.UOM === 'number' ? row[CONFIG.INVENTORY_COLS.UOM] : '') ||
+      _getItemUomCode(itemCode)
+    ).trim().toUpperCase() || _getItemUomCode(itemCode);
+
+    const meta = (binMetaMap && binMetaMap[binId]) ? binMetaMap[binId] : null;
+    if (meta) {
+      if (!byBin[binId]) byBin[binId] = { byUom: {}, hasInventory: false, rowCount: 0 };
+      byBin[binId].hasInventory = true;
+      byBin[binId].rowCount += 1;
+      Object.keys(meta.capacities || {}).forEach(function (targetUom) {
+        if (!byBin[binId].byUom[targetUom]) {
+          byBin[binId].byUom[targetUom] = { qty: 0, conversionMissCount: 0 };
+        }
+        const converted = _convertItemQtyToTargetUom(itemCode, qty, rowUom, targetUom);
+        if (isFinite(converted)) byBin[binId].byUom[targetUom].qty += converted;
+        else byBin[binId].byUom[targetUom].conversionMissCount += 1;
+      });
+    }
+
+    const kgQty = _convertItemQtyToTargetUom(itemCode, qty, rowUom, 'KG');
+    if (isFinite(kgQty)) kgByBin[binId] = (kgByBin[binId] || 0) + kgQty;
+    else kgUnknownByBin[binId] = true;
+  }
+
+  cache[key] = { byBin: byBin, kgByBin: kgByBin, kgUnknownByBin: kgUnknownByBin };
+  return cache[key];
+}
+
+function _getBinMasterMeta(binId, binSheet, binData, colMap) {
+  const metaMap = _buildBinMasterMetaMap(binSheet, binData, colMap);
+  return metaMap[String(binId || '').trim()] || null;
+}
+
+function _getBinMasterMetaContext() {
+  _ensureRequestCache();
+  if (_REQ_CACHE.binMasterMetaContext) return _REQ_CACHE.binMasterMetaContext;
+
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const binSheet = _getSheetOrThrow(ss, CONFIG.SHEETS.BIN);
   const binData = _getSheetValuesCached(binSheet.getName());
   const colMap = _getSheetHeaderMap(binSheet);
-  const meta = _getBinMasterMeta(binId, binSheet, binData, colMap);
-  if (!meta) return;
+  const metaMap = _buildBinMasterMetaMap(binSheet, binData, colMap);
 
-  if (!meta.capacityKg || meta.capacityKg <= 0) {
-    Logger.log(`Bin capacity missing for ${binId}; skipping capacity check`);
-    return;
-  }
-
-  const currentMap = _getInventoryQtyByBinMap();
-  const currentQty = Number(currentMap[String(binId || '').trim()] || 0);
-  const delta = (binDeltaMap && binDeltaMap[String(binId || '').trim()]) || 0;
-  const projected = currentQty + delta + (Number(addQtyKg) || 0);
-  if (projected > meta.capacityKg) {
-    throw new Error(`Bin capacity exceeded for ${binId}. Max ${meta.capacityKg} KG, projected ${projected} KG.`);
-  }
-  _assertRackSwlForBin(binId, addQtyKg, binDeltaMap);
+  _REQ_CACHE.binMasterMetaContext = {
+    sheet: binSheet,
+    data: binData,
+    colMap: colMap,
+    metaMap: metaMap
+  };
+  return _REQ_CACHE.binMasterMetaContext;
 }
 
-function _deriveBinStatus(qty, capacityKg) {
-  const q = Number(qty) || 0;
-  const cap = Number(capacityKg) || 0;
-  if (cap > 0 && q > cap) return 'BLOCKED';
-  if (q <= 0) return 'FREE';
-  if (cap > 0 && q >= cap) return 'FULL';
+function _isZeroBufferBin(binId, meta) {
+  const raw = String(binId || '').trim().toUpperCase();
+  const code = String((meta && meta.binCode) || '').trim().toUpperCase();
+  const rack = String((meta && meta.rackId) || '').trim().toUpperCase();
+  return raw.indexOf('ZERO') === 0 || code.indexOf('ZERO') === 0 || rack === 'ZERO';
+}
+
+function _assertBinCapacity(binId, addQty, binDeltaMap, itemCode, inputUom) {
+  const ctx = _getBinMasterMetaContext();
+  const metaMap = ctx.metaMap || {};
+  const meta = metaMap[String(binId || '').trim()] || null;
+  if (!meta) return;
+
+  const binKey = String(binId || '').trim();
+  if (binDeltaMap && binKey) binDeltaMap[binKey] = true;
+  if (_isZeroBufferBin(binKey, meta)) {
+    return { convertedQty: 0, capacityUom: meta.capacityUom || '', capacity: Number(meta.capacity || 0) };
+  }
+  const rawAddQty = Number(addQty) || 0;
+  const capDeltaMap = binDeltaMap
+    ? (binDeltaMap.__capacityByBin || (binDeltaMap.__capacityByBin = {}))
+    : null;
+  const slot = _resolveBinCapacitySlot(meta, itemCode, inputUom);
+
+  if (!slot.uom || !slot.capacity) {
+    if (slot.missing) {
+      throw new Error(`Bin ${binId} has no matching capacity configured for ${String(itemCode || 'this item').trim()}. Add ${slot.configuredUoms.join('/') || 'a'} capacity for its UOM in Bin_Master.`);
+    }
+    _assertRackSwlForBin(binId, addQty, binDeltaMap, itemCode, inputUom);
+    return { convertedQty: 0, capacityUom: '', capacity: 0 };
+  }
+
+  const deltaKey = binKey + '||' + slot.uom;
+  const priorDelta = capDeltaMap ? Number(capDeltaMap[deltaKey] || 0) : 0;
+  let addQtyInCapacityUom = 0;
+  if (rawAddQty > 0) {
+    const sourceItemCode = String(itemCode || '').trim();
+    const sourceUom = String(inputUom || _getItemUomCode(sourceItemCode)).trim().toUpperCase();
+    addQtyInCapacityUom = _convertItemQtyToTargetUom(sourceItemCode, rawAddQty, sourceUom, slot.uom);
+    if (!isFinite(addQtyInCapacityUom)) {
+      throw new Error(`Bin ${binId} capacity for ${slot.uom} cannot be compared for ${sourceItemCode || 'selected item'} from ${sourceUom || 'its current UOM'}.`);
+    }
+  }
+
+  const usageSummary = _getInventoryUsageSummaryForBinSet(metaMap, (function () {
+    const set = {};
+    set[binKey] = true;
+    return set;
+  })(), 'CAPACITY_' + binKey);
+  const usage = usageSummary.byBin[binKey] || { byUom: {}, hasInventory: false };
+  const currentQty = Number(((((usage || {}).byUom || {})[slot.uom] || {}).qty) || 0);
+  const projected = currentQty + priorDelta + addQtyInCapacityUom;
+  if (projected > slot.capacity) {
+    throw new Error(`Bin capacity exceeded for ${binId}. Max ${slot.capacity} ${slot.uom}, projected ${projected.toFixed(2)} ${slot.uom}.`);
+  }
+
+  if (capDeltaMap && addQtyInCapacityUom > 0) {
+    capDeltaMap[deltaKey] = priorDelta + addQtyInCapacityUom;
+  }
+
+  _assertRackSwlForBin(binId, addQty, binDeltaMap, itemCode, inputUom);
+  return { convertedQty: addQtyInCapacityUom, capacityUom: slot.uom, capacity: slot.capacity };
+}
+
+function _deriveBinStatus(metrics) {
+  const info = metrics || {};
+  const lines = Array.isArray(info.capacityLines) ? info.capacityLines : [];
+  const hasInventory = info.hasInventory === true;
+  for (let i = 0; i < lines.length; i++) {
+    if (Number(lines[i].currentUsage || 0) > Number(lines[i].maxCapacity || 0)) return 'BLOCKED';
+  }
+  if (!hasInventory) return 'FREE';
+  for (let j = 0; j < lines.length; j++) {
+    if (Number(lines[j].maxCapacity || 0) > 0 && Number(lines[j].currentUsage || 0) >= Number(lines[j].maxCapacity || 0)) {
+      return 'FULL';
+    }
+  }
   return 'PARTIAL';
 }
 
 function _updateBinAndRackStatuses(binIds) {
   if (!binIds || binIds.length === 0) return;
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const binSheet = _getSheetOrThrow(ss, CONFIG.SHEETS.BIN);
-  const binData = _getSheetValuesCached(binSheet.getName());
-  const binColMap = _getSheetHeaderMap(binSheet);
-  const idIdx = typeof binColMap['BIN_ID'] === 'number' ? binColMap['BIN_ID'] : 0;
-  const rackIdx = typeof binColMap['RACK_ID'] === 'number' ? binColMap['RACK_ID'] : 1;
-  const capIdx = typeof binColMap['MAX_CAPACITY_KG'] === 'number'
-    ? binColMap['MAX_CAPACITY_KG']
-    : (typeof binColMap['MAX_CAPACITY'] === 'number' ? binColMap['MAX_CAPACITY'] : 3);
-  const statusIdx = typeof binColMap['BIN_STATUS'] === 'number' ? binColMap['BIN_STATUS'] : null;
-
-  const qtyMap = _getInventoryQtyByBinMap();
+  const binCtx = _getBinMasterMetaContext();
+  const binSheet = binCtx.sheet;
+  const binData = binCtx.data || [];
+  const binMetaMap = binCtx.metaMap || {};
   const targetSet = {};
-  (binIds || []).forEach(b => { if (b) targetSet[String(b).trim()] = true; });
+  (binIds || []).forEach(function (b) {
+    const id = String(b || '').trim();
+    if (!id) return;
+    if (_isZeroBufferBin(id, binMetaMap[id] || null)) return;
+    targetSet[id] = true;
+  });
+  if (Object.keys(targetSet).length === 0) return;
 
   const racksTouched = {};
-  if (statusIdx === null) {
+  const usageBinSet = {};
+  Object.keys(targetSet).forEach(function (binId) { usageBinSet[binId] = true; });
+  const hasAnyStatusCol = Object.keys(binMetaMap).some(function (binId) {
+    return typeof (binMetaMap[binId] || {}).statusIdx === 'number';
+  });
+  if (!hasAnyStatusCol) {
     Logger.log('Bin status column not found; skipping bin status updates');
   }
 
   for (let i = 1; i < binData.length; i++) {
-    const binId = String(binData[i][idIdx] || '').trim();
+    const binId = String(binData[i][0] || '').trim();
     if (!binId || !targetSet[binId]) continue;
-    const rackId = String(binData[i][rackIdx] || '').trim();
+    const meta = binMetaMap[binId] || {};
+    const rackId = String(meta.rackId || '').trim();
     if (rackId) racksTouched[rackId] = true;
-    const capacity = Number(binData[i][capIdx]) || 0;
-    const qty = Number(qtyMap[binId] || 0);
-    const status = _deriveBinStatus(qty, capacity);
-    if (statusIdx !== null) {
-      binSheet.getRange(i + 1, statusIdx + 1).setValue(status);
-      _updateSheetCacheCell(CONFIG.SHEETS.BIN, i + 1, statusIdx + 1, status);
+  }
+
+  const rackIds = Object.keys(racksTouched);
+  if (rackIds.length > 0) {
+    for (let i = 1; i < binData.length; i++) {
+      const binId = String(binData[i][0] || '').trim();
+      const meta = binMetaMap[binId] || {};
+      if (rackIds.indexOf(String(meta.rackId || '').trim()) !== -1) usageBinSet[binId] = true;
+    }
+  }
+
+  const usageSummary = _getInventoryUsageSummaryForBinSet(binMetaMap, usageBinSet, 'STATUS_' + Object.keys(usageBinSet).sort().join('|'));
+
+  for (let i = 1; i < binData.length; i++) {
+    const binId = String(binData[i][0] || '').trim();
+    if (!binId || !targetSet[binId]) continue;
+    const meta = binMetaMap[binId] || {};
+    const usage = usageSummary.byBin[binId] || { byUom: {}, hasInventory: false };
+    const status = _deriveBinStatus(_getBinCapacityMetrics(meta, usage));
+    if (typeof meta.statusIdx === 'number') {
+      binSheet.getRange(i + 1, meta.statusIdx + 1).setValue(status);
+      _updateSheetCacheCell(CONFIG.SHEETS.BIN, i + 1, meta.statusIdx + 1, status);
     }
   }
 
@@ -2718,15 +3921,15 @@ function _updateBinAndRackStatuses(binIds) {
     return;
   }
 
-  const rackIds = Object.keys(racksTouched);
   if (rackIds.length === 0) return;
 
   rackIds.forEach(rackId => {
     let rackLoad = 0;
     for (let i = 1; i < binData.length; i++) {
-      if (String(binData[i][rackIdx] || '').trim() !== rackId) continue;
-      const binId = String(binData[i][idIdx] || '').trim();
-      rackLoad += Number(qtyMap[binId] || 0);
+      const binId = String(binData[i][0] || '').trim();
+      const meta = binMetaMap[binId] || {};
+      if (String(meta.rackId || '').trim() !== rackId) continue;
+      rackLoad += Number(usageSummary.kgByBin[binId] || 0);
     }
     let rackSwl = 0;
     if (rackSwlIdx !== null) {
@@ -2751,31 +3954,32 @@ function _updateBinAndRackStatuses(binIds) {
   });
 }
 
-function _assertRackSwlForBin(binId, addQtyKg, binDeltaMap) {
+function _assertRackSwlForBin(binId, addQty, binDeltaMap, itemCode, inputUom) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const binSheet = ss.getSheetByName(CONFIG.SHEETS.BIN);
   const rackSheet = ss.getSheetByName(CONFIG.SHEETS.RACK);
-  if (!binSheet || !rackSheet) return;
-  const binData = _getSheetValuesCached(binSheet.getName());
+  if (!rackSheet) return;
+  const binCtx = _getBinMasterMetaContext();
+  const binData = binCtx.data || [];
   const rackData = _getSheetValuesCached(rackSheet.getName());
-  const binColMap = _getSheetHeaderMap(binSheet);
+  const binMetaMap = binCtx.metaMap || {};
   const rackColMap = _getSheetHeaderMap(rackSheet);
-  const idIdx = typeof binColMap['BIN_ID'] === 'number' ? binColMap['BIN_ID'] : 0;
-  const rackIdx = typeof binColMap['RACK_ID'] === 'number' ? binColMap['RACK_ID'] : 1;
   const rackIdIdx = typeof rackColMap['RACK_ID'] === 'number' ? rackColMap['RACK_ID'] : 0;
   const rackSwlIdx = typeof rackColMap['RACK_SWL_KG'] === 'number'
     ? rackColMap['RACK_SWL_KG']
     : (typeof rackColMap['RACK_SWL'] === 'number' ? rackColMap['RACK_SWL'] : null);
   if (rackSwlIdx === null) return;
 
-  let rackId = '';
-  for (let i = 1; i < binData.length; i++) {
-    if (String(binData[i][idIdx] || '').trim() === String(binId || '').trim()) {
-      rackId = String(binData[i][rackIdx] || '').trim();
-      break;
-    }
-  }
+  const binKey = String(binId || '').trim();
+  const rackId = String(((binMetaMap[binKey] || {}).rackId) || '').trim();
   if (!rackId) return;
+
+  const rackBinSet = {};
+  for (let i = 1; i < binData.length; i++) {
+    const id = String(binData[i][0] || '').trim();
+    const meta = binMetaMap[id] || {};
+    if (String(meta.rackId || '').trim() === rackId) rackBinSet[id] = true;
+  }
+  const usageSummary = _getInventoryUsageSummaryForBinSet(binMetaMap, rackBinSet, 'RACK_' + rackId);
 
   let rackSwl = 0;
   for (let i = 1; i < rackData.length; i++) {
@@ -2786,22 +3990,35 @@ function _assertRackSwlForBin(binId, addQtyKg, binDeltaMap) {
   }
   if (!rackSwl || rackSwl <= 0) return;
 
-  const qtyMap = _getInventoryQtyByBinMap();
-  const deltaMap = binDeltaMap || {};
-  const add = Number(addQtyKg) || 0;
+  const deltaMap = binDeltaMap
+    ? (binDeltaMap.__rackKgByBin || (binDeltaMap.__rackKgByBin = {}))
+    : null;
+  let add = 0;
+  const rawAddQty = Number(addQty) || 0;
+  if (rawAddQty > 0 && itemCode) {
+    const sourceUom = String(inputUom || _getItemUomCode(itemCode)).trim().toUpperCase();
+    const addKg = _convertItemQtyToTargetUom(itemCode, rawAddQty, sourceUom, 'KG');
+    if (isFinite(addKg)) {
+      add = addKg;
+    } else {
+      Logger.log('Rack SWL skipped for ' + (itemCode || 'item') + ' in bin ' + binId + ' because quantity cannot be normalized to KG.');
+      return;
+    }
+  }
   let rackLoad = 0;
   for (let i = 1; i < binData.length; i++) {
-    if (String(binData[i][rackIdx] || '').trim() !== rackId) continue;
-    const id = String(binData[i][idIdx] || '').trim();
-    const base = Number(qtyMap[id] || 0);
-    const delta = Number(deltaMap[id] || 0);
+    const id = String(binData[i][0] || '').trim();
+    if (!rackBinSet[id]) continue;
+    const base = Number(usageSummary.kgByBin[id] || 0);
+    const delta = Number((deltaMap && deltaMap[id]) || 0);
     rackLoad += base + delta;
   }
-  if (add) {
-    rackLoad += add;
+  const projected = rackLoad + add;
+  if (projected > rackSwl) {
+    throw new Error(`Rack SWL exceeded for rack ${rackId}. SWL ${rackSwl} KG, projected ${projected.toFixed(2)} KG.`);
   }
-  if (rackLoad > rackSwl) {
-    throw new Error(`Rack SWL exceeded for rack ${rackId}. SWL ${rackSwl} KG, projected ${rackLoad} KG.`);
+  if (deltaMap && add > 0) {
+    deltaMap[binKey] = Number(deltaMap[binKey] || 0) + add;
   }
 }
 
@@ -2916,6 +4133,7 @@ function getStockAggregationByVersion(options) {
         const rawItemId = String(row[cols.ITEM_ID] || '').trim();
         itemCode = itemMaps.idToCode[String(rawItemId || '').toUpperCase()] || rawItemId;
       }
+      itemCode = _getCanonicalItemCode(itemCode, row[cols.ITEM_ID]);
       if (!itemCode) continue;
 
       const version = _normalizeMovementVersion(row[cols.VERSION]);
@@ -3001,7 +4219,7 @@ function _getQaStatusSummaryByItem() {
   for (let i = 1; i < data.length; i++) {
     const qty = Number(data[i][cols.TOTAL_QUANTITY]) || 0;
     if (qty <= 0) continue;
-    const itemCode = String(data[i][cols.ITEM_CODE_CACHE] || '').trim();
+    const itemCode = _getCanonicalItemCode(data[i][cols.ITEM_CODE_CACHE], data[i][cols.ITEM_ID]);
     if (!itemCode) continue;
     let status = _normalizeQaStatus(data[i][cols.QUALITY_STATUS] || 'PENDING');
     if (!summary[itemCode]) {
@@ -3022,7 +4240,10 @@ function getWarehouseReadModel(options) {
   const build = () => {
     const items = getStockAggregationByVersion({ skipAuth: true }) || [];
     const qaSummaryByItem = _getQaStatusSummaryByItem();
+    const itemMaps = _getItemMasterMaps();
     items.forEach(item => {
+      const codeNorm = String(item.itemCode || '').trim().toUpperCase();
+      item.itemName = String(itemMaps.codeToName[codeNorm] || item.itemCode || '');
       item.qaSummary = qaSummaryByItem[item.itemCode] || { approved: 0, pending: 0, rejected: 0, hold: 0, overridden: 0, closed: 0 };
     });
     return { items: items, qaSummaryByItem: qaSummaryByItem };
@@ -3102,6 +4323,408 @@ function getWarehouseItemDashboardData() {
   });
 }
 
+/**
+ * Packaging Version Lifecycle System: Data API
+ * Filters for items starting with 'PM' and merges with Packing_Version_Master metadata.
+ */
+function getPackingMaterialDashboardData() {
+  return protect(function () {
+    const cacheKey = 'PACKING_MATERIAL_DASHBOARD_V2';
+    const cached = _getScriptCacheJson(cacheKey);
+    if (cached) return cached;
+
+    const model = getWarehouseReadModel({ skipAuth: true });
+    const items = model.items || [];
+
+    // Filter for Packing Materials only (Item Code starts with PM)
+    const pmItems = items.filter(it => String(it.itemCode || '').trim().toUpperCase().startsWith('PM'));
+
+    // Fetch Latest Mappings
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName(CONFIG.SHEETS.PACKING_VERSION_MASTER);
+    const mappings = {};
+
+    if (sheet) {
+      _ensurePackingVersionMasterSchema(sheet);
+      const data = sheet.getDataRange().getValues();
+      const C = CONFIG.PACKING_VERSION_COLS;
+      for (let i = 1; i < data.length; i++) {
+        const itemCode = String(data[i][C.ITEM_CODE] || '').trim().toUpperCase();
+        const version = String(data[i][C.SYSTEM_VERSION] || '').trim().toUpperCase();
+        const binId = String(data[i][C.BIN_ID] || '').trim().toUpperCase();
+        const isLatest = data[i][C.IS_LATEST] === true || String(data[i][C.IS_LATEST]).toUpperCase() === 'TRUE';
+
+        if (isLatest && itemCode && version && binId) {
+          const key = `${itemCode}||${version}||${binId}`;
+          mappings[key] = {
+            isLatest: true,
+            reason: String(data[i][C.REASON] || ''),
+            latestName: String(data[i][C.LATEST_NAME] || '')
+          };
+        }
+      }
+    }
+
+    // Inject Latest status into Bins
+    pmItems.forEach(it => {
+      let itemHasLatest = false;
+      (it.versions || []).forEach(v => {
+        (v.bins || []).forEach(b => {
+          const key = `${String(it.itemCode).toUpperCase()}||${String(v.version).toUpperCase()}||${String(b.binId).toUpperCase()}`;
+          if (mappings[key]) {
+            b.isLatest = true;
+            b.latestReason = mappings[key].reason;
+            b.latestName = mappings[key].latestName;
+            itemHasLatest = true;
+          } else {
+            b.isLatest = false;
+            b.latestName = '';
+          }
+        });
+      });
+      it.hasLatest = itemHasLatest;
+    });
+
+    _putScriptCacheJson(cacheKey, pmItems, 45);
+    return pmItems;
+  });
+}
+
+function _ensurePackingVersionMasterSchema(sheet) {
+  if (!sheet) return;
+  const C = CONFIG.PACKING_VERSION_COLS;
+  const requiredHeaders = [];
+  requiredHeaders[C.MAPPING_ID] = 'mapping_id';
+  requiredHeaders[C.ITEM_CODE] = 'item_code';
+  requiredHeaders[C.SYSTEM_VERSION] = 'system_version';
+  requiredHeaders[C.BIN_ID] = 'bin_id';
+  requiredHeaders[C.IS_LATEST] = 'is_latest';
+  requiredHeaders[C.REASON] = 'reason';
+  requiredHeaders[C.UPDATED_BY] = 'updated_by';
+  requiredHeaders[C.UPDATED_AT] = 'updated_at';
+  requiredHeaders[C.LATEST_NAME] = 'latest_name';
+
+  const width = requiredHeaders.length;
+  const current = sheet.getRange(1, 1, 1, Math.max(width, sheet.getLastColumn() || width)).getValues()[0] || [];
+  let changed = false;
+  for (let i = 0; i < requiredHeaders.length; i++) {
+    if (!String(current[i] || '').trim()) {
+      current[i] = requiredHeaders[i];
+      changed = true;
+    }
+  }
+  if (changed) {
+    sheet.getRange(1, 1, 1, current.length).setValues([current]);
+  }
+}
+
+/**
+ * Assigns or updates the 'Latest' status for a specific PM bin.
+ */
+function setPackingVersionLatest(payload) {
+  return withScriptLock(function () {
+    return protect(function (user) {
+      requireRole(SECURITY.ROLES.MANAGER);
+      const itemCode = String(payload.itemCode || '').trim().toUpperCase();
+      const version = String(payload.version || '').trim().toUpperCase();
+      const binId = String(payload.binId || '').trim().toUpperCase();
+      const isLatest = payload.isLatest === true;
+      const reason = String(payload.reason || '').trim();
+      const latestName = String(payload.latestName || payload.labelName || '').trim().toUpperCase();
+
+      if (!itemCode || !version || !binId) throw new Error('Missing itemCode, version, or binId');
+      if (isLatest && !latestName) throw new Error('Latest name required');
+
+      const ss = SpreadsheetApp.getActiveSpreadsheet();
+      let sheet = ss.getSheetByName(CONFIG.SHEETS.PACKING_VERSION_MASTER);
+      if (!sheet) {
+        sheet = ss.insertSheet(CONFIG.SHEETS.PACKING_VERSION_MASTER);
+        sheet.appendRow(['mapping_id', 'item_code', 'system_version', 'bin_id', 'is_latest', 'reason', 'updated_by', 'updated_at', 'latest_name']);
+      }
+      _ensurePackingVersionMasterSchema(sheet);
+
+      const data = sheet.getDataRange().getValues();
+      const C = CONFIG.PACKING_VERSION_COLS;
+      let foundRowIdx = -1;
+
+      for (let i = 1; i < data.length; i++) {
+        if (String(data[i][C.ITEM_CODE]).toUpperCase() === itemCode &&
+          String(data[i][C.SYSTEM_VERSION]).toUpperCase() === version &&
+          String(data[i][C.BIN_ID]).toUpperCase() === binId) {
+          foundRowIdx = i + 1;
+          break;
+        }
+      }
+
+      const timestamp = new Date();
+      const updatedBy = user.email;
+
+      // If setting to latest, unmark all other entries for this item_code first
+      if (isLatest) {
+        for (let i = 1; i < data.length; i++) {
+          const rowItemCode = String(data[i][C.ITEM_CODE] || '').trim().toUpperCase();
+          const rowIsLatest = data[i][C.IS_LATEST] === true || String(data[i][C.IS_LATEST]).toUpperCase() === 'TRUE';
+          if (rowItemCode === itemCode && rowIsLatest) {
+            sheet.getRange(i + 1, C.IS_LATEST + 1).setValue(false);
+            sheet.getRange(i + 1, C.UPDATED_BY + 1).setValue(updatedBy);
+            sheet.getRange(i + 1, C.UPDATED_AT + 1).setValue(timestamp);
+            sheet.getRange(i + 1, C.REASON + 1).setValue('Superseded by new latest');
+            sheet.getRange(i + 1, C.LATEST_NAME + 1).setValue('');
+          }
+        }
+      }
+
+      if (foundRowIdx !== -1) {
+        sheet.getRange(foundRowIdx, C.IS_LATEST + 1).setValue(isLatest);
+        sheet.getRange(foundRowIdx, C.REASON + 1).setValue(reason);
+        sheet.getRange(foundRowIdx, C.UPDATED_BY + 1).setValue(updatedBy);
+        sheet.getRange(foundRowIdx, C.UPDATED_AT + 1).setValue(timestamp);
+        sheet.getRange(foundRowIdx, C.LATEST_NAME + 1).setValue(isLatest ? latestName : '');
+      } else {
+        const mappingId = 'PM-L-' + timestamp.getTime();
+        const newRow = [];
+        newRow[C.MAPPING_ID] = mappingId;
+        newRow[C.ITEM_CODE] = itemCode;
+        newRow[C.SYSTEM_VERSION] = version;
+        newRow[C.BIN_ID] = binId;
+        newRow[C.IS_LATEST] = isLatest;
+        newRow[C.REASON] = reason;
+        newRow[C.UPDATED_BY] = updatedBy;
+        newRow[C.UPDATED_AT] = timestamp;
+        newRow[C.LATEST_NAME] = isLatest ? latestName : '';
+        sheet.appendRow(newRow);
+      }
+      _clearSheetCache(CONFIG.SHEETS.PACKING_VERSION_MASTER);
+
+      return { success: true };
+    });
+  });
+}
+
+function _applyPackingVersionMappingsFromInward(updates, userEmail) {
+  if (!updates || updates.length === 0) return 0;
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName(CONFIG.SHEETS.PACKING_VERSION_MASTER);
+  if (!sheet) {
+    sheet = ss.insertSheet(CONFIG.SHEETS.PACKING_VERSION_MASTER);
+    sheet.appendRow(['mapping_id', 'item_code', 'system_version', 'bin_id', 'is_latest', 'reason', 'updated_by', 'updated_at', 'latest_name']);
+  }
+  _ensurePackingVersionMasterSchema(sheet);
+
+  const C = CONFIG.PACKING_VERSION_COLS;
+  const width = C.LATEST_NAME + 1;
+  const data = sheet.getDataRange().getValues();
+  while (data.length < 1) data.push([]);
+  while (data[0].length < width) data[0].push('');
+
+  const now = new Date();
+  const email = String(userEmail || Session.getActiveUser().getEmail() || '').trim();
+  const rowByKey = {};
+  const changedRows = {};
+  for (let i = 1; i < data.length; i++) {
+    while (data[i].length < width) data[i].push('');
+    const key = [
+      String(data[i][C.ITEM_CODE] || '').trim().toUpperCase(),
+      String(data[i][C.SYSTEM_VERSION] || '').trim().toUpperCase(),
+      String(data[i][C.BIN_ID] || '').trim().toUpperCase()
+    ].join('||');
+    rowByKey[key] = i;
+  }
+
+  const appendRows = [];
+  updates.forEach(function (u) {
+    const itemCode = String(u.itemCode || '').trim().toUpperCase();
+    const version = String(u.version || '').trim().toUpperCase();
+    const binId = String(u.binId || '').trim().toUpperCase();
+    const labelType = String(u.labelType || '').trim().toUpperCase();
+    const latestName = String(u.latestName || '').trim().toUpperCase();
+    if (!itemCode || !version || !binId || !labelType) return;
+
+    const isLatest = labelType === 'LATEST';
+    if (isLatest && !latestName) return;
+
+    if (isLatest) {
+      for (let i = 1; i < data.length; i++) {
+        const rowItem = String(data[i][C.ITEM_CODE] || '').trim().toUpperCase();
+        const rowIsLatest = data[i][C.IS_LATEST] === true || String(data[i][C.IS_LATEST]).toUpperCase() === 'TRUE';
+        if (rowItem === itemCode && rowIsLatest) {
+          data[i][C.IS_LATEST] = false;
+          data[i][C.REASON] = 'Superseded by PM inward ' + latestName;
+          data[i][C.UPDATED_BY] = email;
+          data[i][C.UPDATED_AT] = now;
+          data[i][C.LATEST_NAME] = '';
+          changedRows[i] = true;
+        }
+      }
+    }
+
+    const key = [itemCode, version, binId].join('||');
+    let idx = rowByKey[key];
+    if (typeof idx !== 'number') {
+      const newRow = [];
+      while (newRow.length < width) newRow.push('');
+      newRow[C.MAPPING_ID] = 'PM-L-' + now.getTime() + '-' + Math.floor(Math.random() * 1000);
+      newRow[C.ITEM_CODE] = itemCode;
+      newRow[C.SYSTEM_VERSION] = version;
+      newRow[C.BIN_ID] = binId;
+      appendRows.push(newRow);
+      idx = data.length + appendRows.length - 1;
+      rowByKey[key] = idx;
+    }
+
+    const row = idx < data.length ? data[idx] : appendRows[idx - data.length];
+    row[C.IS_LATEST] = isLatest;
+    row[C.REASON] = isLatest ? ('PM inward latest label ' + latestName) : 'PM inward obsolete label';
+    row[C.UPDATED_BY] = email;
+    row[C.UPDATED_AT] = now;
+    row[C.LATEST_NAME] = isLatest ? latestName : '';
+    if (idx < data.length) changedRows[idx] = true;
+  });
+
+  Object.keys(changedRows).forEach(function (idxText) {
+    const idx = Number(idxText);
+    if (!isFinite(idx) || idx <= 0 || idx >= data.length) return;
+    const row = data[idx].slice(0, width);
+    while (row.length < width) row.push('');
+    sheet.getRange(idx + 1, 1, 1, width).setValues([row]);
+  });
+  if (appendRows.length > 0) {
+    sheet.getRange(sheet.getLastRow() + 1, 1, appendRows.length, width).setValues(appendRows);
+  }
+  _clearSheetCache(CONFIG.SHEETS.PACKING_VERSION_MASTER);
+  return updates.length;
+}
+
+function syncPackingLabelsFromInventoryLotLabels() {
+  return withScriptLock(function () {
+    const user = protect(() => requireRole(SECURITY.ROLES.MANAGER));
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const invSheet = _getSheetOrThrow(ss, CONFIG.SHEETS.INVENTORY);
+    const data = _getSheetValuesCached(invSheet.getName());
+    const updates = [];
+
+    for (let i = 1; i < data.length; i++) {
+      const itemCode = String(data[i][CONFIG.INVENTORY_COLS.ITEM_CODE_CACHE] || '').trim();
+      if (!/^PM/i.test(itemCode)) continue;
+
+      const lotNo = String(data[i][CONFIG.INVENTORY_COLS.LOT_NO] || '').trim();
+      const version = String(data[i][CONFIG.INVENTORY_COLS.VERSION] || '').trim();
+      const binId = String(data[i][CONFIG.INVENTORY_COLS.BIN_ID] || '').trim();
+      if (!lotNo || !version || !binId) continue;
+
+      const upper = lotNo.toUpperCase();
+      if (upper.indexOf('LATEST:') === 0) {
+        updates.push({
+          itemCode: itemCode,
+          version: version,
+          binId: binId,
+          labelType: 'LATEST',
+          latestName: lotNo.slice(lotNo.indexOf(':') + 1).trim()
+        });
+      } else if (upper === 'OBSOLETE') {
+        updates.push({
+          itemCode: itemCode,
+          version: version,
+          binId: binId,
+          labelType: 'OBSOLETE',
+          latestName: ''
+        });
+      }
+    }
+
+    const synced = _applyPackingVersionMappingsFromInward(updates, user && user.email);
+    return { success: true, scanned: Math.max(0, data.length - 1), synced: synced };
+  });
+}
+
+/**
+ * getTransferStockByItemCode
+ * Used by TransferForm source picker.
+ * Reads inventory the same way getWarehouseLayout does:
+ *   - Direct column index access (no _resolveInventoryItemCode)
+ *   - item_id → Item_Master map for code resolution (no CacheService)
+ *   - Returns ONLY plain strings/numbers — no rowData, no Date objects
+ *   - Safe for google.script.run serialization
+ *
+ * @param  {string} itemCode  e.g. "ST27"
+ * @returns {Array<{batchId,batchNumber,binId,binCode,site,location,qty,uom,qaStatus,version}>}
+ */
+function getTransferStockByItemCode(itemCode) {
+  return protect(function () {
+    var code = String(itemCode || '').trim().toUpperCase();
+    if (!code) return [];
+
+    var cacheKey = 'TRANSFER_STOCK_V3_' + code;
+    var cached = _getScriptCacheJson(cacheKey);
+    if (cached) return cached;
+
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var invSheet = _getSheetOrThrow(ss, CONFIG.SHEETS.INVENTORY);
+    var invData = _getSheetValuesCached(invSheet.getName());
+
+    // Build item_id → code map directly from Item_Master (same as getWarehouseLayout)
+    var itemMap = {};
+    var itemSheet = ss.getSheetByName(CONFIG.SHEETS.ITEM);
+    if (itemSheet) {
+      var itemData = _getSheetValuesCached(itemSheet.getName());
+      var itemCols = _getItemSheetColumnMap(itemSheet);
+      for (var m = 1; m < itemData.length; m++) {
+        var iId = String(itemData[m][itemCols.ITEM_ID] || '').trim();
+        var iCode = String(itemData[m][itemCols.ITEM_CODE] || '').trim();
+        if (iId) itemMap[iId] = iCode;
+        if (iCode) itemMap['__CODE__' + iCode.toUpperCase()] = iCode;
+      }
+    }
+
+    // Build bin_id → {binCode, site, location} map from Bin + Rack masters
+    var binMeta = _buildBinMetaMap(ss);   // already returns plain strings
+
+    var results = [];
+    for (var i = 1; i < invData.length; i++) {
+      var row = invData[i];
+      var qty = Number(row[CONFIG.INVENTORY_COLS.TOTAL_QUANTITY]) || 0;
+      if (qty <= 0) continue;
+
+      // Resolve item code: item_id first, fall back to item_code_cache
+      var rawId = String(row[CONFIG.INVENTORY_COLS.ITEM_ID] || '').trim();
+      var rawCode = String(row[CONFIG.INVENTORY_COLS.ITEM_CODE_CACHE] || '').trim();
+      var resolved = itemMap[rawId]
+        || itemMap['__CODE__' + rawCode.toUpperCase()]
+        || rawCode;
+
+      if (String(resolved || '').trim().toUpperCase() !== code) continue;
+
+      var batchId = String(row[CONFIG.INVENTORY_COLS.BATCH_ID] || '').trim();
+      var batchInfo = _resolveBatchReference(code, batchId);
+      var binId = String(row[CONFIG.INVENTORY_COLS.BIN_ID] || '').trim();
+      var meta = binMeta[binId] || {};
+
+      results.push({
+        batchId: String((batchInfo && batchInfo.batchId) || batchId),
+        batchNumber: String((batchInfo && batchInfo.batchNumber) || batchId),
+        binId: binId,
+        binCode: String(meta.binCode || binId),
+        site: String(meta.site || ''),
+        location: String(meta.location || ''),
+        qty: qty,
+        uom: String(row[CONFIG.INVENTORY_COLS.UOM] || 'NOS').trim() || 'NOS',
+        qaStatus: String(row[CONFIG.INVENTORY_COLS.QUALITY_STATUS] || 'PENDING').trim().toUpperCase(),
+        version: String(row[CONFIG.INVENTORY_COLS.VERSION] || '').trim()
+      });
+    }
+
+    // APPROVED/OVERRIDDEN first, then highest qty
+    results.sort(function (a, b) {
+      var okA = (a.qaStatus === 'APPROVED' || a.qaStatus === 'OVERRIDDEN') ? 1 : 0;
+      var okB = (b.qaStatus === 'APPROVED' || b.qaStatus === 'OVERRIDDEN') ? 1 : 0;
+      return okB !== okA ? okB - okA : b.qty - a.qty;
+    });
+
+    _putScriptCacheJson(cacheKey, results, 45);
+    return results;
+  });
+}
+
 function _buildWarehouseItemsFallbackFromInventory() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const invSheet = _getSheetOrThrow(ss, CONFIG.SHEETS.INVENTORY);
@@ -3125,6 +4748,7 @@ function _buildWarehouseItemsFallbackFromInventory() {
       const itemIdRaw = String(row[cols.ITEM_ID] || '').trim().toUpperCase();
       itemCode = itemMaps.idToCode[itemIdRaw] || itemIdRaw;
     }
+    itemCode = _getCanonicalItemCode(itemCode, row[cols.ITEM_ID]);
     if (!itemCode) continue;
 
     const version = _normalizeMovementVersion(row[cols.VERSION]);
@@ -3158,6 +4782,7 @@ function _buildWarehouseItemsFallbackFromInventory() {
 
   return Object.keys(agg).sort().map(function (itemCode) {
     const info = agg[itemCode];
+    const codeNorm = String(itemCode || '').trim().toUpperCase();
     const versions = Object.keys(info.versions).sort().map(function (version) {
       const bins = Object.keys(info.versions[version]).sort().map(function (binId) {
         const entry = info.versions[version][binId];
@@ -3182,6 +4807,7 @@ function _buildWarehouseItemsFallbackFromInventory() {
     });
     return {
       itemCode: itemCode,
+      itemName: String(itemMaps.codeToName[codeNorm] || itemCode),
       uomCode: info.uom || 'KG',
       totalQty: Number(info.totalQty) || 0,
       qaSummary: qaSummaryByItem[itemCode] || { approved: 0, pending: 0, rejected: 0, hold: 0, overridden: 0, closed: 0 },
@@ -3219,6 +4845,7 @@ function _buildWarehouseItemsFallbackFromSnapshot() {
     const codeNorm = String(itemCode || '').trim().toUpperCase();
     return {
       itemCode: itemCode,
+      itemName: String(itemMaps.codeToName[codeNorm] || itemCode),
       uomCode: String(itemMaps.codeToUom[codeNorm] || 'KG'),
       totalQty: totalQty,
       qaSummary: qaSummaryByItem[itemCode] || emptyQa,
@@ -3432,7 +5059,10 @@ function _aggregateInventorySnapshotByItem(options) {
     } else if (!opts.allStatuses) {
       if (status === 'REJECTED' || status === 'HOLD') continue;
     }
-    const code = String(data[i][CONFIG.INVENTORY_COLS.ITEM_CODE_CACHE] || '').trim();
+    const code = _getCanonicalItemCode(
+      data[i][CONFIG.INVENTORY_COLS.ITEM_CODE_CACHE],
+      data[i][CONFIG.INVENTORY_COLS.ITEM_ID]
+    );
     if (!code) continue;
     const site = String(data[i][CONFIG.INVENTORY_COLS.SITE] || '').trim();
     const location = String(data[i][CONFIG.INVENTORY_COLS.LOCATION] || '').trim();
@@ -3457,6 +5087,47 @@ function ensureMinStockAlertTrigger() {
     .create();
 }
 
+function _getActiveManagerAlertEmails_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const aclSheet = _getSheetOrThrow(ss, CONFIG.SHEETS.ACCESS_CONTROL);
+  const data = _getSheetValuesCached(aclSheet.getName());
+  if (!data || data.length <= 1) return [];
+
+  const headers = data[0] || [];
+  const emailCol = Math.max(0, _findHeaderColumnLoose(headers, ['EMAIL', 'USER_EMAIL', 'USER EMAIL']));
+  const roleCol = _findHeaderColumnLoose(headers, ['ROLE', 'USER_ROLE', 'USER ROLE']);
+  const statusCol = _findHeaderColumnLoose(headers, ['STATUS', 'USER_STATUS', 'USER STATUS']);
+  const resolvedRoleCol = roleCol >= 0 ? roleCol : 1;
+  const resolvedStatusCol = statusCol >= 0 ? statusCol : 3;
+  const seen = {};
+  const emails = [];
+
+  for (let i = 1; i < data.length; i++) {
+    const email = String(data[i][emailCol] || '').trim();
+    const emailKey = email.toLowerCase();
+    const role = String(data[i][resolvedRoleCol] || '').trim().toUpperCase();
+    const status = String(data[i][resolvedStatusCol] || '').trim().toUpperCase();
+    if (!email || seen[emailKey]) continue;
+    if (role !== SECURITY.ROLES.MANAGER) continue;
+    if (status && status !== 'ACTIVE') continue;
+    seen[emailKey] = true;
+    emails.push(email);
+  }
+  return emails;
+}
+
+function _getMinStockAlertRecipients_() {
+  const props = PropertiesService.getScriptProperties();
+  const managerEmails = _getActiveManagerAlertEmails_();
+  if (managerEmails.length > 0) {
+    props.setProperty('ALERT_EMAILS', managerEmails.join(','));
+    return managerEmails;
+  }
+
+  const raw = String(props.getProperty('ALERT_EMAILS') || props.getProperty('ALERT_EMAIL') || '').trim();
+  return raw.split(/[;,]/).map(function (e) { return e.trim(); }).filter(Boolean);
+}
+
 /**
  * Configures min-stock alert recipients from Access_Control_List managers
  * and ensures the daily trigger exists.
@@ -3467,30 +5138,15 @@ function setupMinStockAlertsForManagers() {
   return protect(function () {
     requireRole(SECURITY.ROLES.MANAGER);
 
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const aclSheet = _getSheetOrThrow(ss, CONFIG.SHEETS.ACCESS_CONTROL);
-    const data = _getSheetValuesCached(aclSheet.getName());
-    const emails = [];
-
-    for (let i = 1; i < data.length; i++) {
-      const email = String(data[i][0] || '').trim();
-      const role = String(data[i][1] || '').trim().toUpperCase();
-      const status = String(data[i][3] || '').trim().toUpperCase();
-      if (!email) continue;
-      if (status && status !== 'ACTIVE') continue;
-      if (role !== SECURITY.ROLES.MANAGER) continue;
-      emails.push(email);
-    }
-
-    const unique = Array.from(new Set(emails));
-    if (unique.length === 0) {
+    const emails = _getActiveManagerAlertEmails_();
+    if (emails.length === 0) {
       throw new Error('No active MANAGER emails found in Access_Control_List.');
     }
 
-    PropertiesService.getScriptProperties().setProperty('ALERT_EMAILS', unique.join(','));
+    PropertiesService.getScriptProperties().setProperty('ALERT_EMAILS', emails.join(','));
     ensureMinStockAlertTrigger();
 
-    return { success: true, recipients: unique.length, emails: unique };
+    return { success: true, recipients: emails.length, emails: emails };
   });
 }
 
@@ -3619,6 +5275,30 @@ function setupMovementLogArchival() {
     requireRole(SECURITY.ROLES.MANAGER);
     ensureMovementArchiveTrigger();
     return { success: true, message: 'Monthly movement log archival trigger configured.' };
+  });
+}
+
+/**
+ * One-time setup for the Packing_Version_Master sheet.
+ * Creates the sheet and adds headers if they don't exist.
+ */
+function setupPackingVersionMaster() {
+  return protect(function () {
+    requireRole(SECURITY.ROLES.MANAGER);
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sheetName = CONFIG.SHEETS.PACKING_VERSION_MASTER;
+    let sheet = ss.getSheetByName(sheetName);
+
+    if (!sheet) {
+      sheet = ss.insertSheet(sheetName);
+      const headers = ['mapping_id', 'item_code', 'system_version', 'bin_id', 'is_latest', 'reason', 'updated_by', 'updated_at'];
+      sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+      sheet.getRange(1, 1, 1, headers.length).setFontWeight('bold').setBackground('#f3f3f3');
+      sheet.setFrozenRows(1);
+      return { success: true, message: 'Sheet "' + sheetName + '" created with headers.' };
+    } else {
+      return { success: true, message: 'Sheet "' + sheetName + '" already exists.' };
+    }
   });
 }
 
@@ -3796,6 +5476,56 @@ function getItemMovementHistory(itemCode, limit, offset) {
   });
 }
 
+/**
+ * Returns the last 5 unique TRANSFER routes made by the current user.
+ * Used by TransferForm "Recent" strip — read-only, no lock needed.
+ * @returns {Array<{itemCode, batchId, fromBinId, fromBinCode, toBinId, toBinCode}>}
+ */
+function getMyRecentTransfers() {
+  return protect(function (user) {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName(CONFIG.SHEETS.MOVEMENT);
+    if (!sheet) return [];
+
+    const data = _getSheetValuesCached(sheet.getName());
+    const maps = _getItemMasterMaps();
+    const seen = {};
+    const result = [];
+
+    for (let i = data.length - 1; i >= 1 && result.length < 5; i--) {
+      const row = data[i];
+      const type = String(row[CONFIG.MOVEMENT_COLS.MOVEMENT_TYPE] || '').toUpperCase();
+      if (type !== 'TRANSFER' && type !== 'TRANSFER_QUARANTINE') continue;
+
+      const rowEmail = String(row[CONFIG.MOVEMENT_COLS.USER_EMAIL] || '').trim().toLowerCase();
+      if (rowEmail !== String(user.email || '').trim().toLowerCase()) continue;
+
+      const itemId = String(row[CONFIG.MOVEMENT_COLS.ITEM_ID] || '').trim();
+      const batchId = String(row[CONFIG.MOVEMENT_COLS.BATCH_ID] || '').trim();
+      const fromBin = String(row[CONFIG.MOVEMENT_COLS.FROM_BIN_ID] || '').trim();
+      const toBin = String(row[CONFIG.MOVEMENT_COLS.TO_BIN_ID] || '').trim();
+      const itemCode = maps.idToCode[itemId.toUpperCase()] || itemId;
+
+      const key = itemCode + '|' + batchId + '|' + fromBin + '|' + toBin;
+      if (seen[key]) continue;
+      seen[key] = true;
+
+      const fromMeta = _getBinMetaById(fromBin);
+      const toMeta = _getBinMetaById(toBin);
+
+      result.push({
+        itemCode: itemCode,
+        batchId: batchId,
+        fromBinId: fromBin,
+        fromBinCode: String((fromMeta && fromMeta.binCode) || fromBin),
+        toBinId: toBin,
+        toBinCode: String((toMeta && toMeta.binCode) || toBin)
+      });
+    }
+    return result;
+  });
+}
+
 function searchInventoryItems(query) {
   return protect(function (user) {
     const allItems = getItems();
@@ -3811,7 +5541,8 @@ function getItemDetails(itemCode) {
   return protect(function (user) {
     const visRows = getInventoryReadView({ itemCode: itemCode });
     const stock = (visRows || []).map(r => ({
-      batch: r.batchId,
+      batch: r.batchNumber || r.batchId,
+      batchId: r.batchId,
       gin: r.ginNo,
       version: r.version,
       binId: r.binId,
@@ -3829,9 +5560,15 @@ function getItemDetails(itemCode) {
 function clearDashboardCache() {
   try {
     const sc = CacheService.getScriptCache();
-    // Clear the AI knowledge cache if it exists
-
-    sc.remove(AI_CONFIG.CACHE_KEY);
+    sc.removeAll([
+      AI_CONFIG.CACHE_KEY,
+      'LOCATIONS_MASTER_V1',
+      'BINS_FAST_V3',
+      'BINS_V6',
+      'ACTIVE_PRODUCTION_ORDERS_V1',
+      'PACKING_MATERIAL_DASHBOARD_V1',
+      'PACKING_MATERIAL_DASHBOARD_V2'
+    ]);
     // NOTE: User auth and item caches expire naturally in 300s.
     // We cannot enumerate all keys to delete them (GAS limitation).
     // For immediate effect on a specific user: call invalidateUserAuthCache(email)
@@ -3881,10 +5618,21 @@ function updateQualityStatus(payload) {
     const approvedAtIdx = headerMap['QA_APPROVED_AT'] ?? headerMap['APPROVED_AT'];
 
     let found = false;
-    for (let i = 1; i < data.length; i++) {
+    const targetInventoryId = String(payload.inventoryId);
+    const hintedRowIndex = Number(payload.rowIndex);
+    const candidateIndexes = [];
+    if (isFinite(hintedRowIndex) && hintedRowIndex > 1 && hintedRowIndex <= data.length) {
+      candidateIndexes.push(hintedRowIndex - 1);
+    }
+    for (let idx = 1; idx < data.length; idx++) {
+      if (candidateIndexes.indexOf(idx) === -1) candidateIndexes.push(idx);
+    }
+
+    for (let ci = 0; ci < candidateIndexes.length; ci++) {
+      const i = candidateIndexes[ci];
       const rowInvId = String(data[i][CONFIG.INVENTORY_COLS.INVENTORY_ID]);
 
-      if (rowInvId === String(payload.inventoryId)) {
+      if (rowInvId === targetInventoryId) {
         const currentStatus = _normalizeQaStatus(data[i][CONFIG.INVENTORY_COLS.QUALITY_STATUS] || 'PENDING');
         if (currentStatus === 'CLOSED') {
           throw new Error('CLOSED rows are immutable');
@@ -3894,14 +5642,6 @@ function updateQualityStatus(payload) {
         }
         if (newStatus === 'CLOSED' && currentStatus !== 'OVERRIDDEN') {
           throw new Error('Only OVERRIDDEN stock can be CLOSED');
-        }
-        if (newStatus === 'APPROVED') {
-          // Validate capacity/SWL before approval (no quantity change, but prevents approving invalid storage).
-          const binId = String(data[i][CONFIG.INVENTORY_COLS.BIN_ID] || '').trim();
-          if (binId) {
-            _assertBinCapacity(binId, 0);
-            _assertRackSwlForBin(binId);
-          }
         }
 
         const qd = payload.qualityDate ? new Date(payload.qualityDate) : new Date();
@@ -4090,20 +5830,15 @@ function getQaInventoryView() {
   _beginRequestCache();
   try {
     // Auth guard FIRST
-    Logger.log('[QA_BACKEND] Checking QA access...');
     assertQualityManagerAccess();
 
     // Load overrides
-    Logger.log('[QA_BACKEND] Loading override events...');
     const overrideMap = _getLatestOverrideEventsByInventoryId() || {};
-    Logger.log('[QA_BACKEND] Override map size: ' + Object.keys(overrideMap).length);
 
     // Load inventory read view
-    Logger.log('[QA_BACKEND] Loading inventory read view...');
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const invSheet = _getSheetOrThrow(ss, CONFIG.SHEETS.INVENTORY);
     const data = _getSheetValuesCached(invSheet.getName());
-    Logger.log('[QA_BACKEND] Inventory sheet rows: ' + data.length);
 
     // Build visibility rows inline (no nested protect calls)
     const norm = v => String(v || '').trim().toUpperCase();
@@ -4116,12 +5851,13 @@ function getQaInventoryView() {
       const qty = Number(row[CONFIG.INVENTORY_COLS.TOTAL_QUANTITY]) || 0;
       if (qty <= 0) continue;
 
-      const resolvedItemCode = _resolveInventoryItemCode(
+      let resolvedItemCode = _resolveInventoryItemCode(
         row,
         row[CONFIG.INVENTORY_COLS.ITEM_CODE_CACHE],
         row[CONFIG.INVENTORY_COLS.ITEM_ID],
         itemIdToCode
       );
+      resolvedItemCode = _getCanonicalItemCode(resolvedItemCode, row[CONFIG.INVENTORY_COLS.ITEM_ID]);
       const rowCode = norm(resolvedItemCode);
       if (!rowCode) continue;
       const rowUomRaw = String((CONFIG.INVENTORY_COLS.UOM !== undefined ? row[CONFIG.INVENTORY_COLS.UOM] : '') || '').trim();
@@ -4131,13 +5867,15 @@ function getQaInventoryView() {
         rowUom = itemCodeToUom[rowCode] || 'KG';
       }
 
+      const batchInfo = _resolveBatchReference(resolvedItemCode, row[CONFIG.INVENTORY_COLS.BATCH_ID]);
+
       visRows.push({
         rowIndex: i + 1,
         rowData: row,
         inventoryId: String(row[CONFIG.INVENTORY_COLS.INVENTORY_ID] || ''),
         itemId: String(row[CONFIG.INVENTORY_COLS.ITEM_ID] || ''),
         itemCode: String(resolvedItemCode || '').trim(),
-        batchId: norm(row[CONFIG.INVENTORY_COLS.BATCH_ID]),
+        batchId: String((batchInfo && batchInfo.batchId) || row[CONFIG.INVENTORY_COLS.BATCH_ID] || '').trim(),
         binId: norm(row[CONFIG.INVENTORY_COLS.BIN_ID]),
         ginNo: String(row[CONFIG.INVENTORY_COLS.GIN_NO] || '').trim(),
         site: String(row[CONFIG.INVENTORY_COLS.SITE] || '').trim(),
@@ -4149,20 +5887,17 @@ function getQaInventoryView() {
         version: String(row[CONFIG.INVENTORY_COLS.VERSION] || '').trim()
       });
     }
-    Logger.log('[QA_BACKEND] Visible rows loaded: ' + visRows.length);
 
     const result = [];
     visRows.forEach(r => {
       let status = _normalizeQaStatus(r.qualityStatus || 'PENDING');
       // Exclude resolved rows from QA worklist.
       if (status === 'APPROVED' || status === 'REJECTED') {
-        Logger.log('[QA_BACKEND] Excluding resolved row: ' + r.inventoryId + ' status=' + status);
         return;
       }
 
       const invId = String(r.inventoryId || '');
       const override = overrideMap[invId] || {};
-      Logger.log('[QA_BACKEND] Adding ' + invId + ' with status ' + status);
 
       // Convert dates to ISO strings for JSON serialization
       const qualityDateVal = r.qualityDate;
@@ -4171,10 +5906,12 @@ function getQaInventoryView() {
       const overriddenAtStr = overriddenAtVal ? (overriddenAtVal instanceof Date ? overriddenAtVal.toISOString() : String(overriddenAtVal)) : '';
 
       result.push({
+        rowIndex: r.rowIndex,
         inventoryId: invId,
         itemId: String(r.itemId || ''),
         itemCode: String(r.itemCode || ''),
         batchId: String(r.batchId || ''),
+        batchNumber: _getBatchDisplayNumber(r.itemCode, r.batchId),
         binId: String(r.binId || ''),
         ginNo: String(r.ginNo || ''),
         quantity: Number(r.quantity) || 0,
@@ -4189,7 +5926,6 @@ function getQaInventoryView() {
         overrideMovementId: String(override.overrideMovementId || '')
       });
     });
-    Logger.log('[QA_BACKEND] Final result length: ' + result.length);
     return result;
 
   } catch (error) {
@@ -4217,7 +5953,10 @@ function getInventoryReadView(filter) {
     const f = filter || {};
     const norm = v => String(v || '').trim().toUpperCase();
     const fItem = norm(f.itemCode || '');
-    const fBatch = norm(f.batchId || '');
+    const batchFilterInfo = String(f.batchId || '').trim()
+      ? _resolveBatchReference(fItem || f.itemCode || '', f.batchId)
+      : null;
+    const acceptedBatchKeys = batchFilterInfo ? (batchFilterInfo.acceptedKeys || {}) : null;
     const fBin = norm(f.binId || '');
     const itemIdToCode = {};
     const itemCodeToUom = {};
@@ -4239,8 +5978,10 @@ function getInventoryReadView(filter) {
       const rowBin = norm(row[CONFIG.INVENTORY_COLS.BIN_ID]);
 
       if (fItem && rowCode !== fItem) continue;
-      if (fBatch && rowBatch !== fBatch) continue;
+      if (acceptedBatchKeys && !acceptedBatchKeys[rowBatch]) continue;
       if (fBin && rowBin !== fBin) continue;
+
+      const batchInfo = _resolveBatchReference(resolvedItemCode, row[CONFIG.INVENTORY_COLS.BATCH_ID]);
 
       rows.push({
         rowIndex: i + 1,
@@ -4248,7 +5989,8 @@ function getInventoryReadView(filter) {
         inventoryId: String(row[CONFIG.INVENTORY_COLS.INVENTORY_ID] || ''),
         itemId: String(row[CONFIG.INVENTORY_COLS.ITEM_ID] || ''),
         itemCode: String(resolvedItemCode || '').trim(),
-        batchId: String(row[CONFIG.INVENTORY_COLS.BATCH_ID] || '').trim(),
+        batchId: String((batchInfo && batchInfo.batchId) || row[CONFIG.INVENTORY_COLS.BATCH_ID] || '').trim(),
+        batchNumber: String((batchInfo && batchInfo.batchNumber) || row[CONFIG.INVENTORY_COLS.BATCH_ID] || '').trim(),
         binId: String(row[CONFIG.INVENTORY_COLS.BIN_ID] || '').trim(),
         ginNo: String(row[CONFIG.INVENTORY_COLS.GIN_NO] || '').trim(),
         site: String(row[CONFIG.INVENTORY_COLS.SITE] || '').trim(),
@@ -4267,6 +6009,71 @@ function getInventoryReadView(filter) {
       });
     }
     return rows;
+  });
+}
+
+/**
+ * getTransferSourcesForItem
+ * Lean server-side lookup for TransferForm source picker.
+ * Returns ONLY the fields needed by the UI — no rowData, no rowIndex.
+ * Called on item-code entry instead of scanning client-side inventoryData.
+ *
+ * @param  {string} itemCode
+ * @returns {Array<{batchId, binId, binCode, site, location, quantity, uom, qualityStatus, version}>}
+ */
+function getTransferSourcesForItem(itemCode) {
+  return protect(function () {
+    const code = String(itemCode || '').trim().toUpperCase();
+    if (!code) return [];
+
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const invSheet = _getSheetOrThrow(ss, CONFIG.SHEETS.INVENTORY);
+    const data = _getSheetValuesCached(invSheet.getName());
+    const binMeta = _buildBinMetaMap(ss);
+    const itemIdToCode = {};
+    const result = [];
+
+    for (let i = 1; i < data.length; i++) {
+      const row = data[i];
+      const qty = Number(row[CONFIG.INVENTORY_COLS.TOTAL_QUANTITY]) || 0;
+      if (qty <= 0) continue;
+
+      const resolvedCode = _resolveInventoryItemCode(
+        row,
+        row[CONFIG.INVENTORY_COLS.ITEM_CODE_CACHE],
+        row[CONFIG.INVENTORY_COLS.ITEM_ID],
+        itemIdToCode
+      );
+      if (!resolvedCode || String(resolvedCode).trim().toUpperCase() !== code) continue;
+
+      const binId = String(row[CONFIG.INVENTORY_COLS.BIN_ID] || '').trim();
+      const batchInfo = _resolveBatchReference(resolvedCode, row[CONFIG.INVENTORY_COLS.BATCH_ID]);
+      const meta = binMeta[binId] || {};
+
+      result.push({
+        batchId: String((batchInfo && batchInfo.batchId) || row[CONFIG.INVENTORY_COLS.BATCH_ID] || '').trim(),
+        batchNumber: String((batchInfo && batchInfo.batchNumber) || row[CONFIG.INVENTORY_COLS.BATCH_ID] || '').trim(),
+        binId: binId,
+        binCode: String(meta.binCode || binId),
+        site: String(meta.site || row[CONFIG.INVENTORY_COLS.SITE] || '').trim(),
+        location: String(meta.location || row[CONFIG.INVENTORY_COLS.LOCATION] || '').trim(),
+        quantity: qty,
+        uom: String((CONFIG.INVENTORY_COLS.UOM !== undefined
+          ? row[CONFIG.INVENTORY_COLS.UOM] : '') || '').trim() || _getItemUomCode(resolvedCode),
+        qualityStatus: String(row[CONFIG.INVENTORY_COLS.QUALITY_STATUS] || 'PENDING').trim(),
+        version: String(row[CONFIG.INVENTORY_COLS.VERSION] || '').trim()
+      });
+    }
+
+    // Sort: APPROVED first, then qty desc (mirrors client sort)
+    result.sort(function (a, b) {
+      var okA = (a.qualityStatus === 'APPROVED' || a.qualityStatus === 'OVERRIDDEN') ? 1 : 0;
+      var okB = (b.qualityStatus === 'APPROVED' || b.qualityStatus === 'OVERRIDDEN') ? 1 : 0;
+      if (okB !== okA) return okB - okA;
+      return b.quantity - a.quantity;
+    });
+
+    return result;
   });
 }
 
@@ -4478,6 +6285,16 @@ function processTransferRequest(form) {
   return submitTransferV2(transferForm);
 }
 
+function _buildInwardInventoryKey(itemCode, batchId, binId, version, ginNo) {
+  return [
+    String(itemCode || '').trim().toUpperCase(),
+    String(batchId || '').trim().toUpperCase(),
+    String(binId || '').trim().toUpperCase(),
+    String(version || '').trim().toUpperCase(),
+    String(ginNo || '').trim().toUpperCase()
+  ].join('||');
+}
+
 
 // =====================================================
 // 7. PUBLIC TRANSACTION ENDPOINTS
@@ -4485,7 +6302,7 @@ function processTransferRequest(form) {
 
 function submitInwardV2(form) {
   return withScriptLock(function () {
-    protect(() => requireOperationalUser());
+    const inwardUser = protect(() => requireOperationalUser());
     if (!form.items || !Array.isArray(form.items)) throw new Error("Invalid items");
     const ginNo = String(form.ginNo || form.billNo || '').trim();
     if (!ginNo) throw new Error("Bill No. required");
@@ -4532,46 +6349,98 @@ function submitInwardV2(form) {
     });
 
     const binDelta = {};
+    const batchRefByItem = {};
     const batchByItem = {};
+    const batchMetaCache = {};
+    const itemIdCache = {};
+    const movementLogs = [];
+    const packingLabelUpdates = [];
+    const inventoryUpdatesByRow = {};
+    const inventoryRowsToCreateByKey = {};
+    const inwardDateRows = {};
+    const targetItemCodes = {};
+    const targetItemIds = {};
     expandedItems.forEach(function (item) {
-      const itemCode = String(item.itemCode || '').trim();
+      const code = _getCanonicalItemCode(String((item && item.itemCode) || '').trim());
+      if (!code) return;
+      targetItemCodes[code.toUpperCase()] = true;
+      try {
+        const id = _getValidatedItemId(code);
+        if (id) {
+          targetItemIds[String(id).trim().toUpperCase()] = true;
+          itemIdCache[code.toUpperCase()] = id;
+        }
+      } catch (e) {
+        // Main validation below will throw a clear item error if needed.
+      }
+    });
+
+    expandedItems.forEach(function (item) {
+      const itemCodeRaw = String(item.itemCode || '').trim();
+      const itemCode = _getCanonicalItemCode(itemCodeRaw);
       if (!itemCode) throw new Error('Inward requires Item Code');
       const qtyKg = _convertToKg(itemCode, item.quantity, item.uom);
       if (!isFinite(qtyKg) || qtyKg <= 0) {
         throw new Error('Inward quantity must be greater than 0 for ' + itemCode);
       }
-      // Manual inward entry: batch is entered by user; no Batch_Master lookup here.
-      let batchId = String(item.batchId || item.batchNumber || '').trim();
-      if (!batchId) {
+      const batchNumber = String(item.batchNumber || item.batchId || '').trim();
+      if (!batchNumber) {
         throw new Error('Batch No required for inward receipt: ' + itemCode);
       }
       const qualityStatus = _normalizeQaStatus(String(item.qualityStatus || 'PENDING'));
       const qualityDate = item.qualityDate ? new Date(item.qualityDate) : '';
       const version = String(item.version || 'V1').trim();
       const lotNo = String(item.lotNo || '').trim();
-      const expiryDate = item.expiryDate ? new Date(item.expiryDate) : '';
+      const expiryDate = _normalizeInwardExpiryDate(item.expiryDate);
 
       if (!/^V\d+$/i.test(version)) {
         throw new Error('Version must be V1, V2, etc.');
       }
 
-      if (batchByItem[itemCode] && batchByItem[itemCode] !== batchId) {
+      if (batchRefByItem[itemCode] && batchRefByItem[itemCode].toUpperCase() !== batchNumber.toUpperCase()) {
         throw new Error(`Inward batch_id mismatch for ${itemCode}`);
       }
-      batchByItem[itemCode] = batchId;
-      const ids = _assertItemCodeBatch(itemCode, batchId, 'Inward');
-      const lookup = _getValidatedItemId(ids.itemCode);
+      batchRefByItem[itemCode] = batchNumber;
+      const batchCacheKey = itemCode.toUpperCase() + '||' + batchNumber.toUpperCase();
+      let batchMeta = batchMetaCache[batchCacheKey];
+      if (!batchMeta) {
+        batchMeta = _upsertBatchMasterFromInward(itemCode, batchNumber, {
+          rawExpiryDate: item.expiryDate,
+          expiryDate: expiryDate,
+          lotNo: lotNo,
+          ginNo: ginNo,
+          version: version
+        });
+        batchMetaCache[batchCacheKey] = batchMeta;
+      }
+      const resolvedBatchId = String((batchMeta && batchMeta.batchId) || '').trim();
+      if (!resolvedBatchId) {
+        throw new Error('Failed to resolve Batch_Master ID for ' + itemCode + ' / ' + batchNumber);
+      }
+      batchByItem[itemCode] = resolvedBatchId;
+      const ids = _assertItemCodeBatch(itemCode, resolvedBatchId, 'Inward');
+      const itemCodeKey = ids.itemCode.toUpperCase();
+      const lookup = itemIdCache[itemCodeKey] || (itemIdCache[itemCodeKey] = _getValidatedItemId(ids.itemCode));
 
-      _assertBinCapacity(item.binId, qtyKg, binDelta);
-      binDelta[item.binId] = (binDelta[item.binId] || 0) + qtyKg;
+      _assertBinCapacity(item.binId, item.quantity, binDelta, itemCode, item.uom);
+      const inwardKey = _buildInwardInventoryKey(ids.itemCode, ids.batchId, item.binId, version, ginNo);
+      let existing = inventoryRowsToCreateByKey[inwardKey] || null;
 
-      const existing = _readInventoryState(
-        ids.itemCode, ids.batchId, item.binId, version
-      ).filter(r => String(r.rowData[CONFIG.INVENTORY_COLS.GIN_NO]) === ginNo);
+      if (String(form.inwardMode || '').trim().toLowerCase() === 'pm') {
+        const labelType = String(item.pmLabelType || '').trim().toUpperCase();
+        const labelName = String(item.pmLabelName || '').trim();
+        if (labelType === 'LATEST' || labelType === 'OBSOLETE') {
+          packingLabelUpdates.push({
+            itemCode: ids.itemCode,
+            version: version,
+            binId: item.binId,
+            labelType: labelType,
+            latestName: labelName
+          });
+        }
+      }
 
-
-
-      _appendMovementLog({
+      movementLogs.push({
         type: CONFIG.MOVEMENT_TYPES.INWARD,
         itemId: lookup, batchId: ids.batchId,
         version: version, ginNo: ginNo,
@@ -4579,19 +6448,20 @@ function submitInwardV2(form) {
         qualityStatus: qualityStatus, remarks: form.remarks
       });
 
-      if (existing.length > 0) {
-        const row = existing[0];
-        _persistInventoryState(row.rowIndex, row.currentQty + qtyKg, sheet);
-        if (typeof CONFIG.INVENTORY_COLS.INWARD_DATE === 'number') {
-          const inwardExisting = row.rowData[CONFIG.INVENTORY_COLS.INWARD_DATE];
-          if (!inwardExisting) {
-            const now = new Date();
-            sheet.getRange(row.rowIndex, CONFIG.INVENTORY_COLS.INWARD_DATE + 1).setValue(now);
-            _updateSheetCacheCell(CONFIG.SHEETS.INVENTORY, row.rowIndex, CONFIG.INVENTORY_COLS.INWARD_DATE + 1, now);
-          }
+      if (existing && existing.rowIndex) {
+        existing.currentQty = Number(existing.currentQty || 0) + qtyKg;
+        inventoryUpdatesByRow[existing.rowIndex] = {
+          rowIndex: existing.rowIndex,
+          newQty: existing.currentQty
+        };
+        if (typeof CONFIG.INVENTORY_COLS.INWARD_DATE === 'number' &&
+          !existing.rowData[CONFIG.INVENTORY_COLS.INWARD_DATE]) {
+          inwardDateRows[existing.rowIndex] = true;
         }
+      } else if (existing && typeof existing.quantity !== 'undefined') {
+        existing.quantity = Number(existing.quantity || 0) + qtyKg;
       } else {
-        _createInventoryRow({
+        inventoryRowsToCreateByKey[inwardKey] = {
           itemId: lookup,
           itemCode: ids.itemCode,
           batchId: ids.batchId, ginNo: ginNo,
@@ -4599,12 +6469,49 @@ function submitInwardV2(form) {
           qualityDate: qualityDate,
           binId: item.binId, site: item.site, location: item.location,
           quantity: qtyKg,
+          uom: String(item.uom || '').trim().toUpperCase(),
           lotNo: lotNo,
           expiryDate: expiryDate
-        });
+        };
       }
     });
+
+    const updateChanges = Object.keys(inventoryUpdatesByRow).map(function (rowIndex) {
+      return inventoryUpdatesByRow[rowIndex];
+    });
+    if (updateChanges.length > 0) {
+      _persistInventoryStatesBatch(updateChanges, sheet);
+    }
+
+    const createRows = Object.keys(inventoryRowsToCreateByKey).map(function (key) {
+      return inventoryRowsToCreateByKey[key];
+    });
+    if (createRows.length > 0) {
+      _appendInventoryRowsBatch(createRows, sheet);
+    }
+
+    const inwardDateRowIndexes = Object.keys(inwardDateRows).map(function (r) { return Number(r); })
+      .filter(function (r) { return isFinite(r) && r > 1; })
+      .sort(function (a, b) { return a - b; });
+    if (inwardDateRowIndexes.length > 0 && typeof CONFIG.INVENTORY_COLS.INWARD_DATE === 'number') {
+      const inwardDateCol = CONFIG.INVENTORY_COLS.INWARD_DATE + 1;
+      const now = new Date();
+      inwardDateRowIndexes.forEach(function (rowIndex) {
+        sheet.getRange(rowIndex, inwardDateCol).setValue(now);
+        _updateSheetCacheCell(CONFIG.SHEETS.INVENTORY, rowIndex, inwardDateCol, now);
+      });
+    }
+
+    if (movementLogs.length > 0) {
+      _appendMovementLogsBatch(movementLogs);
+    }
+
+    if (packingLabelUpdates.length > 0) {
+      _applyPackingVersionMappingsFromInward(packingLabelUpdates, inwardUser && inwardUser.email);
+    }
+
     try { _updateBinAndRackStatuses(Object.keys(binDelta)); } catch (e) { Logger.log('Bin status update failed: ' + e.message); }
+    _clearInwardLookupCaches(Object.keys(targetItemCodes));
     return { success: true, batchIds: batchByItem };
   });
 }
@@ -4649,8 +6556,8 @@ function submitDispatchV2(form) {
         throw new Error('QA override reason required');
       }
       const qtyKg = _convertToKg(item.itemCode, item.quantity, item.uom);
-      if (qtyKg > 10000) {
-        throw new Error('Quantity exceeds single-transaction limit of 10,000 KG - contact manager');
+      if (qtyKg > 50000) {
+        throw new Error('Quantity exceeds single-transaction limit of 50,000 KG - contact manager');
       }
 
       // CRITICAL FIX: Server-authoritative item validation
@@ -4732,6 +6639,285 @@ function submitDispatchV2(form) {
   });
 }
 
+function _findOutwardMovementForReversal(criteria) {
+  const opts = criteria || {};
+  const targetCode = String(opts.itemCode || '').trim().toUpperCase();
+  const targetQty = Number(opts.quantity);
+  const targetMovementId = String(opts.movementId || '').trim();
+  const targetType = String(opts.movementType || '').trim().toUpperCase();
+  const occurrence = Math.max(1, Number(opts.occurrence || 1) || 1);
+  if (!targetCode && !targetMovementId) throw new Error('Provide itemCode or movementId for reversal');
+  if (!targetMovementId && (!isFinite(targetQty) || targetQty <= 0)) throw new Error('Provide positive quantity for reversal');
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const movSheet = _getSheetOrThrow(ss, CONFIG.SHEETS.MOVEMENT);
+  const data = _getSheetValuesCached(movSheet.getName());
+  const itemMaps = _getItemMasterMaps();
+  const used = {};
+  const matches = [];
+
+  for (let i = 1; i < data.length; i++) {
+    const row = data[i];
+    const movementId = String(row[CONFIG.MOVEMENT_COLS.MOVEMENT_ID] || '').trim();
+    const remarks = String(row[CONFIG.MOVEMENT_COLS.REMARKS] || '');
+    const reverseMatch = remarks.match(/REVERSAL_OF=([^;\s]+)/i);
+    if (reverseMatch && reverseMatch[1]) used[String(reverseMatch[1]).trim()] = true;
+    if (targetMovementId && movementId !== targetMovementId) continue;
+
+    const movementType = String(row[CONFIG.MOVEMENT_COLS.MOVEMENT_TYPE] || '').trim().toUpperCase();
+    if (movementType !== CONFIG.MOVEMENT_TYPES.DISPATCH && movementType !== CONFIG.MOVEMENT_TYPES.CONSUMPTION) continue;
+    if (targetType && movementType !== targetType) continue;
+
+    const itemId = String(row[CONFIG.MOVEMENT_COLS.ITEM_ID] || '').trim();
+    const code = String(itemMaps.idToCode[itemId.toUpperCase()] || itemId).trim().toUpperCase();
+    const qty = Number(row[CONFIG.MOVEMENT_COLS.QUANTITY]) || 0;
+    if (targetCode && code !== targetCode) continue;
+    if (isFinite(targetQty) && Math.abs(qty - targetQty) > 0.000001) continue;
+    matches.push({ rowIndex: i + 1, row: row, itemCode: code, movementId: movementId, movementType: movementType, quantity: qty });
+  }
+
+  const available = matches.filter(function (m) { return !used[m.movementId]; });
+  if (available.length < occurrence) {
+    throw new Error('No unreversed outward movement found for ' + (targetMovementId || (targetCode + ' qty ' + targetQty)));
+  }
+  return available[occurrence - 1];
+}
+
+function _restoreInventoryForOutwardMovement(match, reason) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const invSheet = _getSheetOrThrow(ss, CONFIG.SHEETS.INVENTORY);
+  const invData = _getSheetValuesCached(invSheet.getName());
+  const row = match.row;
+  const itemCode = match.itemCode;
+  const itemId = String(row[CONFIG.MOVEMENT_COLS.ITEM_ID] || '').trim();
+  const batchId = String(row[CONFIG.MOVEMENT_COLS.BATCH_ID] || '').trim();
+  const version = String(row[CONFIG.MOVEMENT_COLS.VERSION] || '').trim();
+  const ginNo = String(row[CONFIG.MOVEMENT_COLS.GIN_NO] || '').trim();
+  const binId = String(row[CONFIG.MOVEMENT_COLS.FROM_BIN_ID] || '').trim();
+  const qty = Number(row[CONFIG.MOVEMENT_COLS.QUANTITY]) || 0;
+  const uom = String(row[CONFIG.MOVEMENT_COLS.UOM] || _getItemUomCode(itemCode) || 'KG').trim().toUpperCase();
+  if (!itemCode || !batchId || !binId || qty <= 0) throw new Error('Selected movement is missing item/batch/bin/quantity details');
+
+  let targetRowIndex = -1;
+  for (let i = 1; i < invData.length; i++) {
+    const invRow = invData[i];
+    const rowCode = String(invRow[CONFIG.INVENTORY_COLS.ITEM_CODE_CACHE] || '').trim().toUpperCase();
+    const rowBatch = String(invRow[CONFIG.INVENTORY_COLS.BATCH_ID] || '').trim();
+    const rowBin = String(invRow[CONFIG.INVENTORY_COLS.BIN_ID] || '').trim();
+    const rowVersion = String(invRow[CONFIG.INVENTORY_COLS.VERSION] || '').trim();
+    const rowGin = String(invRow[CONFIG.INVENTORY_COLS.GIN_NO] || '').trim();
+    if (rowCode === itemCode && rowBatch === batchId && rowBin === binId && rowVersion === version && rowGin === ginNo) {
+      targetRowIndex = i + 1;
+      break;
+    }
+  }
+
+  if (targetRowIndex > 1) {
+    const current = Number(invData[targetRowIndex - 1][CONFIG.INVENTORY_COLS.TOTAL_QUANTITY]) || 0;
+    const restored = current + qty;
+    invSheet.getRange(targetRowIndex, CONFIG.INVENTORY_COLS.TOTAL_QUANTITY + 1).setValue(restored);
+    invSheet.getRange(targetRowIndex, CONFIG.INVENTORY_COLS.LAST_UPDATED + 1).setValue(new Date());
+    _updateSheetCacheCell(CONFIG.SHEETS.INVENTORY, targetRowIndex, CONFIG.INVENTORY_COLS.TOTAL_QUANTITY + 1, restored);
+    _updateSheetCacheCell(CONFIG.SHEETS.INVENTORY, targetRowIndex, CONFIG.INVENTORY_COLS.LAST_UPDATED + 1, new Date());
+  } else {
+    _appendInventoryRowsBatch([{
+      itemId: itemId || itemCode,
+      itemCode: itemCode,
+      batchId: batchId,
+      ginNo: ginNo || 'REVERSAL-' + match.movementId,
+      version: version || 'V1',
+      qualityStatus: 'APPROVED',
+      qualityDate: new Date(),
+      binId: binId,
+      site: '',
+      location: '',
+      quantity: qty,
+      uom: uom,
+      lotNo: '',
+      expiryDate: _getDefaultInwardExpiryDate()
+    }], invSheet);
+  }
+
+  _appendMovementLogsBatch([{
+    type: CONFIG.MOVEMENT_TYPES.INWARD,
+    itemId: itemId || itemCode,
+    batchId: batchId,
+    version: version,
+    ginNo: ginNo || 'REVERSAL-' + match.movementId,
+    toBinId: binId,
+    quantity: qty,
+    uom: uom,
+    qualityStatus: 'APPROVED',
+    remarks: 'REVERSAL_OF=' + match.movementId + '; ' + String(reason || 'Outward reversed by manager')
+  }]);
+
+  try { _updateBinAndRackStatuses([binId]); } catch (e) { Logger.log('Bin status update failed: ' + e.message); }
+  return { movementId: match.movementId, itemCode: itemCode, batchId: batchId, binId: binId, quantityRestored: qty, uom: uom };
+}
+
+function reverseOutwardMovement(criteria) {
+  return withScriptLock(function () {
+    protect(function () { return requireRole(SECURITY.ROLES.MANAGER); });
+    const match = _findOutwardMovementForReversal(criteria || {});
+    const result = _restoreInventoryForOutwardMovement(match, (criteria && criteria.reason) || '');
+    return { success: true, reversed: result };
+  });
+}
+
+function reversePM311FirstOutward147() {
+  return reverseOutwardMovement({
+    itemCode: 'PM311',
+    quantity: 147,
+    occurrence: 1,
+    reason: 'Reverse mistaken first PM311 outward 147 NOS'
+  });
+}
+
+function _findInwardMovementForInventoryRow_(invRow) {
+  const movSheet = _getSheetOrThrow(SpreadsheetApp.getActiveSpreadsheet(), CONFIG.SHEETS.MOVEMENT);
+  const data = _getSheetValuesCached(movSheet.getName());
+  const itemId = String(invRow[CONFIG.INVENTORY_COLS.ITEM_ID] || '').trim();
+  const batchId = String(invRow[CONFIG.INVENTORY_COLS.BATCH_ID] || '').trim();
+  const version = String(invRow[CONFIG.INVENTORY_COLS.VERSION] || '').trim();
+  const ginNo = String(invRow[CONFIG.INVENTORY_COLS.GIN_NO] || '').trim();
+  const binId = String(invRow[CONFIG.INVENTORY_COLS.BIN_ID] || '').trim();
+  const qty = Number(invRow[CONFIG.INVENTORY_COLS.TOTAL_QUANTITY]) || 0;
+
+  for (let i = data.length - 1; i >= 1; i--) {
+    const row = data[i];
+    const movementType = String(row[CONFIG.MOVEMENT_COLS.MOVEMENT_TYPE] || '').trim().toUpperCase();
+    if (movementType !== CONFIG.MOVEMENT_TYPES.INWARD) continue;
+    if (String(row[CONFIG.MOVEMENT_COLS.ITEM_ID] || '').trim() !== itemId) continue;
+    if (String(row[CONFIG.MOVEMENT_COLS.BATCH_ID] || '').trim() !== batchId) continue;
+    if (String(row[CONFIG.MOVEMENT_COLS.VERSION] || '').trim() !== version) continue;
+    if (String(row[CONFIG.MOVEMENT_COLS.GIN_NO] || '').trim() !== ginNo) continue;
+    if (String(row[CONFIG.MOVEMENT_COLS.TO_BIN_ID] || '').trim() !== binId) continue;
+    if (Math.abs((Number(row[CONFIG.MOVEMENT_COLS.QUANTITY]) || 0) - qty) > 0.000001) continue;
+    return String(row[CONFIG.MOVEMENT_COLS.MOVEMENT_ID] || '').trim();
+  }
+  return '';
+}
+
+function _hasInwardInventoryReversal_(inventoryId) {
+  const data = _getSheetValuesCached(CONFIG.SHEETS.MOVEMENT);
+  const token = 'INWARD_REVERSAL_OF_INV=' + String(inventoryId || '').trim();
+  for (let i = 1; i < data.length; i++) {
+    const remarks = String(data[i][CONFIG.MOVEMENT_COLS.REMARKS] || '');
+    if (remarks.indexOf(token) !== -1) return true;
+  }
+  return false;
+}
+
+function _findInventoryRowForInwardReversal_(criteria) {
+  const invSheet = _getSheetOrThrow(SpreadsheetApp.getActiveSpreadsheet(), CONFIG.SHEETS.INVENTORY);
+  const data = _getSheetValuesCached(invSheet.getName());
+  const inventoryId = String(criteria.inventoryId || '').trim();
+  const itemCode = String(criteria.itemCode || '').trim().toUpperCase();
+  const batchId = String(criteria.batchId || '').trim();
+  const ginNo = String(criteria.ginNo || '').trim();
+  const version = String(criteria.version || '').trim();
+  const binId = String(criteria.binId || '').trim();
+  const quantity = Number(criteria.quantity);
+  const matches = [];
+
+  for (let i = 1; i < data.length; i++) {
+    const row = data[i];
+    const rowInventoryId = String(row[CONFIG.INVENTORY_COLS.INVENTORY_ID] || '').trim();
+    const rowCode = String(row[CONFIG.INVENTORY_COLS.ITEM_CODE_CACHE] || '').trim().toUpperCase();
+    const rowBatch = String(row[CONFIG.INVENTORY_COLS.BATCH_ID] || '').trim();
+    const rowGin = String(row[CONFIG.INVENTORY_COLS.GIN_NO] || '').trim();
+    const rowVersion = String(row[CONFIG.INVENTORY_COLS.VERSION] || '').trim();
+    const rowBin = String(row[CONFIG.INVENTORY_COLS.BIN_ID] || '').trim();
+    const rowQty = Number(row[CONFIG.INVENTORY_COLS.TOTAL_QUANTITY]) || 0;
+    if (inventoryId && rowInventoryId !== inventoryId) continue;
+    if (itemCode && rowCode !== itemCode) continue;
+    if (batchId && rowBatch !== batchId) continue;
+    if (ginNo && rowGin !== ginNo) continue;
+    if (version && rowVersion !== version) continue;
+    if (binId && rowBin !== binId) continue;
+    if (isFinite(quantity) && Math.abs(rowQty - quantity) > 0.000001) continue;
+    if (rowQty <= 0) continue;
+    matches.push({ rowIndex: i + 1, row: row });
+  }
+
+  if (matches.length !== 1) {
+    throw new Error('Expected exactly one duplicate inward inventory row for ' + itemCode + ', found ' + matches.length + '. Use inventoryId for exact reversal.');
+  }
+  return matches[0];
+}
+
+function reverseDuplicateInwardRows(criteria) {
+  return withScriptLock(function () {
+    protect(function () { return requireRole(SECURITY.ROLES.MANAGER); });
+    const items = Array.isArray(criteria && criteria.items) ? criteria.items : [];
+    if (items.length === 0) throw new Error('Provide at least one inward inventory row to reverse.');
+
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const invSheet = _getSheetOrThrow(ss, CONFIG.SHEETS.INVENTORY);
+    const reversed = [];
+    const logs = [];
+    const touchedBins = {};
+    const reason = String(criteria.reason || 'Duplicate inward reversed by manager').trim();
+
+    items.forEach(function (item) {
+      const match = _findInventoryRowForInwardReversal_(item || {});
+      const row = match.row;
+      const inventoryId = String(row[CONFIG.INVENTORY_COLS.INVENTORY_ID] || '').trim();
+      if (_hasInwardInventoryReversal_(inventoryId)) {
+        throw new Error('Inventory row already reversed earlier: ' + inventoryId);
+      }
+
+      const qty = Number(row[CONFIG.INVENTORY_COLS.TOTAL_QUANTITY]) || 0;
+      if (qty <= 0) throw new Error('Inventory row has no stock to reverse: ' + inventoryId);
+      const now = new Date();
+      invSheet.getRange(match.rowIndex, CONFIG.INVENTORY_COLS.TOTAL_QUANTITY + 1).setValue(0);
+      invSheet.getRange(match.rowIndex, CONFIG.INVENTORY_COLS.LAST_UPDATED + 1).setValue(now);
+      _updateSheetCacheCell(CONFIG.SHEETS.INVENTORY, match.rowIndex, CONFIG.INVENTORY_COLS.TOTAL_QUANTITY + 1, 0);
+      _updateSheetCacheCell(CONFIG.SHEETS.INVENTORY, match.rowIndex, CONFIG.INVENTORY_COLS.LAST_UPDATED + 1, now);
+
+      const movementId = _findInwardMovementForInventoryRow_(row);
+      const binId = String(row[CONFIG.INVENTORY_COLS.BIN_ID] || '').trim();
+      touchedBins[binId] = true;
+      logs.push({
+        type: CONFIG.MOVEMENT_TYPES.INWARD_REVERSAL,
+        itemId: String(row[CONFIG.INVENTORY_COLS.ITEM_ID] || '').trim(),
+        batchId: String(row[CONFIG.INVENTORY_COLS.BATCH_ID] || '').trim(),
+        version: String(row[CONFIG.INVENTORY_COLS.VERSION] || '').trim(),
+        ginNo: String(row[CONFIG.INVENTORY_COLS.GIN_NO] || '').trim(),
+        fromBinId: binId,
+        quantity: qty,
+        uom: String(row[CONFIG.INVENTORY_COLS.UOM] || '').trim(),
+        qualityStatus: String(row[CONFIG.INVENTORY_COLS.QUALITY_STATUS] || '').trim(),
+        remarks: 'INWARD_REVERSAL_OF_INV=' + inventoryId + (movementId ? '; REVERSAL_OF=' + movementId : '') + '; ' + reason
+      });
+      reversed.push({
+        inventoryId: inventoryId,
+        itemCode: String(row[CONFIG.INVENTORY_COLS.ITEM_CODE_CACHE] || '').trim(),
+        batchId: String(row[CONFIG.INVENTORY_COLS.BATCH_ID] || '').trim(),
+        ginNo: String(row[CONFIG.INVENTORY_COLS.GIN_NO] || '').trim(),
+        version: String(row[CONFIG.INVENTORY_COLS.VERSION] || '').trim(),
+        binId: binId,
+        quantityReversed: qty,
+        uom: String(row[CONFIG.INVENTORY_COLS.UOM] || '').trim()
+      });
+    });
+
+    _appendMovementLogsBatch(logs);
+    try { _updateBinAndRackStatuses(Object.keys(touchedBins).filter(Boolean)); } catch (e) { Logger.log('Bin status update failed: ' + e.message); }
+    return { success: true, reversed: reversed };
+  });
+}
+
+function reversePM1050PM1051DuplicateInwardMay3() {
+  return reverseDuplicateInwardRows({
+    reason: 'Reverse duplicate inward for PM1050/PM1051 invoice 000020260413A requested by warehouse',
+    items: [
+      { inventoryId: 'INV-1777806298436-339-0', itemCode: 'PM1050', batchId: '1847', ginNo: '000020260413A', version: 'V3', binId: 'ZERO - NOS', quantity: 10000 },
+      { inventoryId: 'INV-1777806298436-92-1', itemCode: 'PM1051', batchId: '1846', ginNo: '000020260413A', version: 'V3', binId: 'ZERO - NOS', quantity: 9000 }
+    ]
+  });
+}
+
 function submitConsumptionV2(form) {
   return withScriptLock(function () {
     const user = protect(() => requireOperationalUser());
@@ -4761,8 +6947,8 @@ function submitConsumptionV2(form) {
       if (!isFinite(qtyKgInput) || qtyKgInput <= 0) {
         throw new Error('Invalid quantity for ' + itemCode);
       }
-      if (qtyKgInput > 10000) {
-        throw new Error('Quantity exceeds single-transaction limit of 10,000 KG - contact manager');
+      if (qtyKgInput > 50000) {
+        throw new Error('Quantity exceeds single-transaction limit of 50,000 KG - contact manager');
       }
 
       const explicitBatchId = String(item.batchId || '').trim();
@@ -4828,20 +7014,25 @@ function submitConsumptionV2(form) {
 
     expandedItems.forEach(function (item) {
       const ledgerBatchId = String(item.ledgerBatchId || '').trim();
+      const ledgerRowIndex = Number(item.ledgerRowIndex || 0);
       const qtyKg = _convertToKg(item.itemCode, item.quantity, item.uom);
-      if (qtyKg > 10000) {
-        throw new Error('Quantity exceeds single-transaction limit of 10,000 KG - contact manager');
+      if (qtyKg > 50000) {
+        throw new Error('Quantity exceeds single-transaction limit of 50,000 KG - contact manager');
       }
 
-      // CRITICAL FIX: Server-authoritative item validation
-      // Ignore client-provided itemId entirely - only trust itemCode
+      // Validate item code for inventory, but update the exact PO ledger item ID
+      // returned by the server-side PO loader when present.
       const lookup = _getValidatedItemId(item.itemCode);
-      const ledgerState = _getProductionLedgerState(form.prodOrderNo, lookup, (ledgerBatchId || item.batchId), '');
+      const ledgerItemKey = String(item.ledgerItemId || '').trim() || lookup;
+      const ledgerState = ledgerRowIndex
+        ? _getProductionLedgerStateByRowIndex(form.prodOrderNo, ledgerRowIndex, ledgerItemKey, (ledgerBatchId || item.batchId), '')
+        : _getProductionLedgerState(form.prodOrderNo, ledgerItemKey, (ledgerBatchId || item.batchId), '');
       if (ledgerState.rowIndex === -1) {
         throw new Error('Production ledger line not found for PO ' + form.prodOrderNo + ' / ' + item.itemCode);
       }
-      if (String(ledgerState.status || '').trim().toUpperCase() !== 'APPROVED') {
-        throw new Error('Cannot consume unapproved PO line for ' + item.itemCode + '. Current status: ' + ledgerState.status);
+      const ledgerStatus = String(ledgerState.status || '').trim().toUpperCase();
+      if (ledgerStatus !== 'APPROVED' && ledgerStatus !== 'OPEN') {
+        throw new Error('Cannot consume PO line for ' + item.itemCode + '. Current status: ' + ledgerState.status);
       }
       _assertItemCodeBatch(item.itemCode, item.batchId, 'Consumption');
 
@@ -4943,11 +7134,13 @@ function submitConsumptionV2(form) {
         qaEventChange = _appendQaEventsBatch(qaEvents);
         ledgerChange = _updateProductionLedger(
           form.prodOrderNo,
-          lookup,
+          ledgerItemKey,
           (ledgerBatchId || item.batchId),
           itemVersion,
           qtyKg,
-          0
+          0,
+          0,
+          ledgerRowIndex
         );
         _appendMovementLogsBatch(logs);
         try { _updateBinAndRackStatuses([item.binId]); } catch (e) { Logger.log('Bin status update failed: ' + e.message); }
@@ -5213,11 +7406,13 @@ function submitTransferV2(form) {
     transferPlan.forEach(function (t) {
       const key = t.itemCode + '|' + t.batchId + '|' + t.toBin;
       if (!destVersionMap[key]) {
+        const batchInfo = _resolveBatchReference(t.itemCode, t.batchId);
+        const acceptedBatchKeys = batchInfo.acceptedKeys || {};
         // Check what version exists in destination bin
         const destRows = invData.filter(function (row) {
-          return row[CONFIG.INVENTORY_COLS.ITEM_CODE_CACHE] === t.itemCode &&
-            row[CONFIG.INVENTORY_COLS.BATCH_ID] === t.batchId &&
-            row[CONFIG.INVENTORY_COLS.BIN_ID] === t.toBin &&
+          return String(row[CONFIG.INVENTORY_COLS.ITEM_CODE_CACHE] || '').trim() === t.itemCode &&
+            !!acceptedBatchKeys[String(row[CONFIG.INVENTORY_COLS.BATCH_ID] || '').trim().toUpperCase()] &&
+            String(row[CONFIG.INVENTORY_COLS.BIN_ID] || '').trim() === t.toBin &&
             Number(row[CONFIG.INVENTORY_COLS.TOTAL_QUANTITY] || 0) > 0;
         });
 
@@ -5266,10 +7461,12 @@ function submitTransferV2(form) {
 
       // Find or create destination inventory row
       let destRowIdx = null;
+      const batchInfo = _resolveBatchReference(t.itemCode, t.batchId);
+      const acceptedBatchKeys = batchInfo.acceptedKeys || {};
       for (let i = 1; i < invData.length; i++) {
         const row = invData[i];
         if (String(row[CONFIG.INVENTORY_COLS.ITEM_CODE_CACHE] || '').trim() === t.itemCode &&
-          String(row[CONFIG.INVENTORY_COLS.BATCH_ID] || '').trim() === t.batchId &&
+          !!acceptedBatchKeys[String(row[CONFIG.INVENTORY_COLS.BATCH_ID] || '').trim().toUpperCase()] &&
           String(row[CONFIG.INVENTORY_COLS.BIN_ID] || '').trim() === t.toBin &&
           String(row[CONFIG.INVENTORY_COLS.VERSION] || '').trim().toUpperCase() === t.version &&
           String(row[CONFIG.INVENTORY_COLS.GIN_NO] || '').trim() === t.ginNo) {
@@ -5385,90 +7582,7 @@ function _detectProductionLedgerUpdatedIdx(row, statusIdx, fallbackIdx) {
   return (typeof fallbackIdx === 'number') ? fallbackIdx : CONFIG.PRODUCTION_LEDGER_COLS.LAST_UPDATED;
 }
 
-function _getProductionLedgerState(orderRef, itemId, batchId, version) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = _getSheetOrThrow(ss, CONFIG.SHEETS.PRODUCTION_LEDGER);
-  const data = _getSheetValuesCached(sheet.getName());
-
-  // Resolve target identifier to both ID and Code
-  let targetId = String(itemId || '').trim().toUpperCase();
-  let targetCode = String(itemId || '').trim().toUpperCase();
-  try {
-    const item = getItemByCodeCached(itemId) || _getItemByIdCached(itemId);
-    if (item) {
-      targetId = String(item.id || '').trim().toUpperCase();
-      targetCode = String(item.code || '').trim().toUpperCase();
-    }
-  } catch (e) { }
-
-  const searchBatch = String(batchId || '').trim().toUpperCase();
-  const searchVersion = String(version || '').trim().toUpperCase();
-  const candidates = [];
-  const candidatesAnyBatch = [];
-
-  for (let i = 1; i < data.length; i++) {
-    const row = data[i];
-    const rowOrderId = String(row[CONFIG.PRODUCTION_LEDGER_COLS.ORDER_ID]);
-    const rowItemId = String(row[CONFIG.PRODUCTION_LEDGER_COLS.ITEM_ID]).trim().toUpperCase();
-
-    if (rowOrderId === String(orderRef) && (rowItemId === targetId || rowItemId === targetCode)) {
-      const rowBatch = String(row[CONFIG.PRODUCTION_LEDGER_COLS.BATCH_ID] || '').trim().toUpperCase();
-      const rowVersion = String(row[CONFIG.PRODUCTION_LEDGER_COLS.VERSION] || '').trim().toUpperCase();
-      const statusIdx = _detectProductionLedgerStatusIdx(row, CONFIG.PRODUCTION_LEDGER_COLS.STATUS);
-      const updatedIdx = _detectProductionLedgerUpdatedIdx(row, statusIdx, CONFIG.PRODUCTION_LEDGER_COLS.LAST_UPDATED);
-      const status = row[statusIdx];
-
-      const batchIsPlaceholder = (rowBatch === '' || rowBatch === 'TBD');
-      const versionIsPlaceholder = (rowVersion === '' || rowVersion === 'TBD');
-
-      const batchMatches = searchBatch ? (rowBatch === searchBatch || batchIsPlaceholder) : true;
-      const versionMatches = searchVersion ? (rowVersion === searchVersion || versionIsPlaceholder) : true;
-      const versionMatchesAnyBatch = searchVersion ? (rowVersion === searchVersion || versionIsPlaceholder) : true;
-
-      if (versionMatchesAnyBatch) {
-        candidatesAnyBatch.push({
-          rowIndex: i + 1,
-          requested: Number(row[CONFIG.PRODUCTION_LEDGER_COLS.QTY_REQUESTED]) || 0,
-          issued: Number(row[CONFIG.PRODUCTION_LEDGER_COLS.QTY_ISSUED]) || 0,
-          returned: Number(row[CONFIG.PRODUCTION_LEDGER_COLS.QTY_RETURNED]) || 0,
-          rejected: Number(row[CONFIG.PRODUCTION_LEDGER_COLS.QTY_REJECTED]) || 0,
-          status: status,
-          statusIdx: statusIdx,
-          updatedIdx: updatedIdx,
-          version: rowVersion,
-          updateBatch: false,
-          updateVersion: !!searchVersion && versionIsPlaceholder
-        });
-      }
-
-      if (batchMatches && versionMatches) {
-        candidates.push({
-          rowIndex: i + 1,
-          requested: Number(row[CONFIG.PRODUCTION_LEDGER_COLS.QTY_REQUESTED]) || 0,
-          issued: Number(row[CONFIG.PRODUCTION_LEDGER_COLS.QTY_ISSUED]) || 0,
-          returned: Number(row[CONFIG.PRODUCTION_LEDGER_COLS.QTY_RETURNED]) || 0,
-          rejected: Number(row[CONFIG.PRODUCTION_LEDGER_COLS.QTY_REJECTED]) || 0,
-          status: status,
-          statusIdx: statusIdx,
-          updatedIdx: updatedIdx,
-          version: rowVersion,
-          updateBatch: !!searchBatch && batchIsPlaceholder,
-          updateVersion: !!searchVersion && versionIsPlaceholder
-        });
-      }
-    }
-  }
-
-  if (candidates.length > 1) {
-    throw new Error(`Duplicate production ledger rows found for ${orderRef} / ${itemId} / ${batchId || 'TBD'} / ${version || 'TBD'}`);
-  }
-  if (candidates.length === 1) return candidates[0];
-  if (searchBatch) {
-    if (candidatesAnyBatch.length > 1) {
-      throw new Error(`Multiple production ledger rows found for ${orderRef} / ${itemId}. Cannot infer unique Job Order row.`);
-    }
-    if (candidatesAnyBatch.length === 1) return candidatesAnyBatch[0];
-  }
+function _emptyProductionLedgerState() {
   return {
     rowIndex: -1, requested: 0, issued: 0, returned: 0, rejected: 0,
     status: 'NOT_FOUND', statusIdx: CONFIG.PRODUCTION_LEDGER_COLS.STATUS,
@@ -5477,11 +7591,130 @@ function _getProductionLedgerState(orderRef, itemId, batchId, version) {
   };
 }
 
+function _resolveProductionLedgerItemKeys(itemIdOrCode) {
+  let targetId = String(itemIdOrCode || '').trim().toUpperCase();
+  let targetCode = String(itemIdOrCode || '').trim().toUpperCase();
+  try {
+    const item = getItemByCodeCached(itemIdOrCode) || _getItemByIdCached(itemIdOrCode);
+    if (item) {
+      targetId = String(item.id || '').trim().toUpperCase();
+      targetCode = String(item.code || '').trim().toUpperCase();
+    }
+  } catch (e) { }
+  return { id: targetId, code: targetCode };
+}
+
+function _buildProductionLedgerState(rowIndex, row, searchBatch, searchVersion) {
+  const cols = CONFIG.PRODUCTION_LEDGER_COLS;
+  const rowBatch = String(row[cols.BATCH_ID] || '').trim().toUpperCase();
+  const rowVersion = String(row[cols.VERSION] || '').trim().toUpperCase();
+  const statusIdx = _detectProductionLedgerStatusIdx(row, cols.STATUS);
+  const updatedIdx = _detectProductionLedgerUpdatedIdx(row, statusIdx, cols.LAST_UPDATED);
+  const batchIsPlaceholder = (rowBatch === '' || rowBatch === 'TBD');
+  const versionIsPlaceholder = (rowVersion === '' || rowVersion === 'TBD');
+
+  return {
+    rowIndex: rowIndex,
+    requested: Number(row[cols.QTY_REQUESTED]) || 0,
+    issued: Number(row[cols.QTY_ISSUED]) || 0,
+    returned: Number(row[cols.QTY_RETURNED]) || 0,
+    rejected: Number(row[cols.QTY_REJECTED]) || 0,
+    status: row[statusIdx],
+    statusIdx: statusIdx,
+    updatedIdx: updatedIdx,
+    version: rowVersion,
+    updateBatch: !!searchBatch && batchIsPlaceholder,
+    updateVersion: !!searchVersion && versionIsPlaceholder
+  };
+}
+
+function _chooseProductionLedgerCandidate(candidates) {
+  let best = null;
+  let bestOut = -Infinity;
+  (candidates || []).forEach(function (candidate) {
+    const status = String(candidate.status || '').trim().toUpperCase();
+    const active = (status === 'OPEN' || status === 'APPROVED');
+    const outstanding = Number(candidate.requested || 0) - Number(candidate.issued || 0) + Number(candidate.returned || 0);
+    if (!best) {
+      best = candidate;
+      bestOut = outstanding;
+      return;
+    }
+    const bestStatus = String(best.status || '').trim().toUpperCase();
+    const bestActive = (bestStatus === 'OPEN' || bestStatus === 'APPROVED');
+    if (active && !bestActive) {
+      best = candidate;
+      bestOut = outstanding;
+    } else if (active === bestActive && outstanding > bestOut) {
+      best = candidate;
+      bestOut = outstanding;
+    }
+  });
+  return best || null;
+}
+
+function _getProductionLedgerStateByRowIndex(orderRef, rowIndex, itemId, batchId, version) {
+  const targetRowIndex = Number(rowIndex);
+  if (!isFinite(targetRowIndex) || targetRowIndex <= 1) return _emptyProductionLedgerState();
+
+  const searchBatch = String(batchId || '').trim().toUpperCase();
+  const searchVersion = String(version || '').trim().toUpperCase();
+  const orderRows = _getProductionLedgerOrderRows(orderRef);
+
+  for (let i = 0; i < orderRows.length; i++) {
+    if (Number(orderRows[i].rowIndex) !== targetRowIndex) continue;
+    const row = orderRows[i].row;
+    // Exact row index is emitted by the server-side PO loader for this PO.
+    // Do not re-resolve item code here; legacy/duplicate Item_Master IDs were
+    // the original reason valid loaded POs failed during final consumption.
+    return _buildProductionLedgerState(orderRows[i].rowIndex, row, searchBatch, searchVersion);
+  }
+
+  return _emptyProductionLedgerState();
+}
+
+function _getProductionLedgerState(orderRef, itemId, batchId, version) {
+  const keys = _resolveProductionLedgerItemKeys(itemId);
+  const searchBatch = String(batchId || '').trim().toUpperCase();
+  const searchVersion = String(version || '').trim().toUpperCase();
+  const candidates = [];
+  const candidatesAnyBatch = [];
+  const orderRows = _getProductionLedgerOrderRows(orderRef);
+  const cols = CONFIG.PRODUCTION_LEDGER_COLS;
+
+  for (let i = 0; i < orderRows.length; i++) {
+    const row = orderRows[i].row;
+    const rowItemId = String(row[cols.ITEM_ID] || '').trim().toUpperCase();
+    if (rowItemId !== keys.id && rowItemId !== keys.code) continue;
+
+    const rowBatch = String(row[cols.BATCH_ID] || '').trim().toUpperCase();
+    const rowVersion = String(row[cols.VERSION] || '').trim().toUpperCase();
+    const batchIsPlaceholder = (rowBatch === '' || rowBatch === 'TBD');
+    const versionIsPlaceholder = (rowVersion === '' || rowVersion === 'TBD');
+    const batchMatches = searchBatch ? (rowBatch === searchBatch || batchIsPlaceholder) : true;
+    const versionMatches = searchVersion ? (rowVersion === searchVersion || versionIsPlaceholder) : true;
+    const versionMatchesAnyBatch = searchVersion ? (rowVersion === searchVersion || versionIsPlaceholder) : true;
+
+    if (versionMatchesAnyBatch) {
+      candidatesAnyBatch.push(_buildProductionLedgerState(orderRows[i].rowIndex, row, '', searchVersion));
+    }
+    if (batchMatches && versionMatches) {
+      candidates.push(_buildProductionLedgerState(orderRows[i].rowIndex, row, searchBatch, searchVersion));
+    }
+  }
+
+  if (candidates.length > 0) return _chooseProductionLedgerCandidate(candidates);
+  if (searchBatch && candidatesAnyBatch.length > 0) return _chooseProductionLedgerCandidate(candidatesAnyBatch);
+  return _emptyProductionLedgerState();
+}
+
 /**
  * Updates production actuals
  */
-function _updateProductionLedger(orderRef, itemId, batchId, version, qtyIssuedInc, qtyReturnedInc, qtyRejectedInc) {
-  const state = _getProductionLedgerState(orderRef, itemId, batchId, version);
+function _updateProductionLedger(orderRef, itemId, batchId, version, qtyIssuedInc, qtyReturnedInc, qtyRejectedInc, ledgerRowIndex) {
+  const state = ledgerRowIndex
+    ? _getProductionLedgerStateByRowIndex(orderRef, ledgerRowIndex, itemId, batchId, version)
+    : _getProductionLedgerState(orderRef, itemId, batchId, version);
 
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = _getSheetOrThrow(ss, CONFIG.SHEETS.PRODUCTION_LEDGER);
@@ -5514,6 +7747,8 @@ function _updateProductionLedger(orderRef, itemId, batchId, version, qtyIssuedIn
     ];
     sheet.appendRow(newRow);
     _appendSheetCacheRow(CONFIG.SHEETS.PRODUCTION_LEDGER, newRow);
+    delete _REQ_CACHE.productionLedgerRowsByOrder;
+    _clearScriptCachesForSheet(CONFIG.SHEETS.PRODUCTION_LEDGER);
     return { action: 'create', rowIndex: rowIndex };
   }
 
@@ -5578,6 +7813,7 @@ function _updateProductionLedger(orderRef, itemId, batchId, version, qtyIssuedIn
   _updateSheetCacheCell(CONFIG.SHEETS.PRODUCTION_LEDGER, state.rowIndex, cols.QTY_REJECTED + 1, newRejected);
   _updateSheetCacheCell(CONFIG.SHEETS.PRODUCTION_LEDGER, state.rowIndex, statusIdx + 1, nextStatus);
   _updateSheetCacheCell(CONFIG.SHEETS.PRODUCTION_LEDGER, state.rowIndex, updatedIdx + 1, updatedAt);
+  _clearScriptCachesForSheet(CONFIG.SHEETS.PRODUCTION_LEDGER);
   return change;
 }
 
@@ -5589,23 +7825,24 @@ function _updateProductionLedger(orderRef, itemId, batchId, version, qtyIssuedIn
 
 
 /**
- * Get pending production orders for manager approval
- * @returns {Array} List of pending production orders
+ * Get active production orders for manager visibility.
+ * Returns both APPROVED and legacy OPEN lines so the manager screen can
+ * act as a read-only order summary instead of an approval queue.
  */
 
 function getPendingProductionOrders() {
   _beginRequestCache();
   try {
-    // Auth guard - Manager only
-    Logger.log('[PO_BACKEND] Checking manager access...');
     requireRole(SECURITY.ROLES.MANAGER);
 
-    Logger.log('[PO_BACKEND] Loading production ledger...');
+    const cacheKey = 'ACTIVE_PRODUCTION_ORDERS_V1';
+    const cached = _getScriptCacheJson(cacheKey);
+    if (cached) return cached;
+
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const sheet = _getSheetOrThrow(ss, CONFIG.SHEETS.PRODUCTION_LEDGER);
     const data = _getSheetValuesCached(sheet.getName());
     const itemMaps = _getItemMasterMaps();
-    Logger.log('[PO_BACKEND] Production ledger rows: ' + data.length);
 
     const result = [];
     const validStatusSet = { OPEN: true, APPROVED: true, REJECTED: true, CLOSED: true };
@@ -5638,8 +7875,9 @@ function getPendingProductionOrders() {
       const statusIdx = detectStatusIdx(row);
       const status = String(row[statusIdx] || '').trim().toUpperCase();
 
-      // Include OPEN (pending approval) and exclude APPROVED/CLOSED
-      if (status === 'APPROVED' || status === 'CLOSED' || status === 'REJECTED') {
+      // Production orders are now auto-approved. Keep legacy OPEN rows visible
+      // so older orders still appear and remain consumable.
+      if (status === 'CLOSED' || status === 'REJECTED') {
         continue;
       }
 
@@ -5647,21 +7885,23 @@ function getPendingProductionOrders() {
       const itemId = String(row[CONFIG.PRODUCTION_LEDGER_COLS.ITEM_ID] || '');
       // Then inside loop:
       const itemCode = itemMaps.idToCode[String(itemId || '').toUpperCase()] || itemId;
+      const itemName = itemMaps.codeToName[String(itemCode || '').trim().toUpperCase()] || itemCode;
       const uomCode = itemMaps.codeToUom[String(itemCode || '').trim().toUpperCase()] || _getItemUomCode(itemCode);
       const batchId = String(row[CONFIG.PRODUCTION_LEDGER_COLS.BATCH_ID] || '');
+      const batchNumber = batchId ? _getBatchDisplayNumber(itemCode, batchId) : '';
       const quantity = Number(row[CONFIG.PRODUCTION_LEDGER_COLS.QTY_REQUESTED]) || Number(row[CONFIG.PRODUCTION_LEDGER_COLS.QTY_ISSUED]) || 0;
       const rejected = Number(row[CONFIG.PRODUCTION_LEDGER_COLS.QTY_REJECTED]) || 0;
       const outstanding = Number(row[CONFIG.PRODUCTION_LEDGER_COLS.NET_OUTSTANDING]) || 0;
       const lastUpdated = row[detectUpdatedIdx(row, statusIdx)] || new Date();
 
-      Logger.log('[PO_BACKEND] Adding pending PO: ' + orderRef + ' status=' + status);
-
       result.push({
         orderRef: orderRef,
         itemId: itemId,
         itemCode: itemCode,
+        itemName: itemName,
         uomCode: uomCode,
         batchId: batchId,
+        batchNumber: batchNumber,
         quantity: quantity,
         rejected: rejected,
         outstanding: outstanding,
@@ -5670,7 +7910,7 @@ function getPendingProductionOrders() {
       });
     }
 
-    Logger.log('[PO_BACKEND] Final pending POs: ' + result.length);
+    _putScriptCacheJson(cacheKey, result, 30);
     return result;
 
   } catch (error) {
@@ -5689,8 +7929,6 @@ function getPendingProductionOrders() {
  */
 function updateProductionOrderStatus(payload) {
   return withScriptLock(function () {
-    Logger.log('[PO_BACKEND] Update request: ' + payload.orderRef + ' -> ' + payload.newStatus);
-
     protect(() => requireRole(SECURITY.ROLES.MANAGER));
 
     if (!payload.orderRef) throw new Error('Order Ref required');
@@ -5780,41 +8018,39 @@ function updateProductionOrderStatus(payload) {
     sheet.getRange(target.rowIndex + 1, target.updatedIdx + 1).setValue(now);
     _updateSheetCacheCell(CONFIG.SHEETS.PRODUCTION_LEDGER, target.rowIndex + 1, target.updatedIdx + 1, now);
 
-    Logger.log('[PO_BACKEND] Updated line for ' + targetOrderRef + ' to ' + newStatus);
+    _clearScriptCachesForSheet(CONFIG.SHEETS.PRODUCTION_LEDGER);
     return { success: true, message: `Production Order ${newStatus}`, orderRef: targetOrderRef };
   });
 }
 
 /**
- * Validates that a Production Order is APPROVED before allowing consumption/return
+ * Validates that a Production Order is ready before allowing consumption/return.
+ * APPROVED is the standard status. Legacy OPEN rows are treated as ready so
+ * older production orders continue to work after approval removal.
  * @param {String} orderRef - Production Order reference ID
- * @throws {Error} If PO doesn't exist or is not APPROVED
+ * @throws {Error} If PO doesn't exist or has no ready lines
  */
 function _validateProductionOrderApproved(orderRef) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = _getSheetOrThrow(ss, CONFIG.SHEETS.PRODUCTION_LEDGER);
-  const data = _getSheetValuesCached(sheet.getName());
   const cols = CONFIG.PRODUCTION_LEDGER_COLS;
+  const rows = _getProductionLedgerOrderRows(orderRef);
 
   let found = false;
-  let hasApproved = false;
+  let hasReadyLine = false;
   const statuses = {};
 
-  for (let i = 1; i < data.length; i++) {
-    const rowOrderRef = String(data[i][cols.ORDER_ID] || '').trim();
-    if (rowOrderRef === String(orderRef)) {
-      found = true;
-      const statusIdx = _detectProductionLedgerStatusIdx(data[i], cols.STATUS);
-      const status = String(data[i][statusIdx] || '').trim().toUpperCase();
-      statuses[status || 'UNKNOWN'] = true;
-      if (status === 'APPROVED') hasApproved = true;
-    }
+  for (let i = 0; i < rows.length; i++) {
+    found = true;
+    const row = rows[i].row;
+    const statusIdx = _detectProductionLedgerStatusIdx(row, cols.STATUS);
+    const status = String(row[statusIdx] || '').trim().toUpperCase();
+    statuses[status || 'UNKNOWN'] = true;
+    if (status === 'APPROVED' || status === 'OPEN') hasReadyLine = true;
   }
 
   if (!found) throw new Error(`Production Order ${orderRef} not found`);
-  if (!hasApproved) {
+  if (!hasReadyLine) {
     const list = Object.keys(statuses).join(', ');
-    throw new Error(`Production Order ${orderRef} has no approved lines yet. Current status: ${list}. Please get manager approval first.`);
+    throw new Error(`Production Order ${orderRef} is not ready for issue/return. Current status: ${list}.`);
   }
 }
 
@@ -5885,26 +8121,27 @@ function getWarehouseLayout() {
     // --- Existing Bin Map (unchanged) ---
     const binData = _getSheetValuesCached(binSheet.getName());
     const binHeaders = _getSheetHeaderMap(binSheet);
-    const capIdx = (typeof binHeaders['MAX_CAPACITY_KG'] === 'number')
-      ? binHeaders['MAX_CAPACITY_KG']
-      : ((typeof binHeaders['MAX_CAPACITY'] === 'number') ? binHeaders['MAX_CAPACITY'] : null);
-    const capUomIdx = (typeof binHeaders['CAPACITY_UOM'] === 'number')
-      ? binHeaders['CAPACITY_UOM']
-      : ((typeof binHeaders['MAX_CAPACITY_UOM'] === 'number') ? binHeaders['MAX_CAPACITY_UOM'] : null);
+    const binMetaMap = _buildBinMasterMetaMap(binSheet, binData, binHeaders);
+    const usageSummary = _getInventoryUsageSummaryByBin(binMetaMap);
     const bins = {};
     for (let i = 1; i < binData.length; i++) {
       const bId = String(binData[i][0]);
       const rId = String(binData[i][1]);
       const rack = rackMap[rId];
       if (rack) {
-        const capUom = capUomIdx === null ? '' : String(binData[i][capUomIdx] || '').trim();
-        const resolvedCap = capIdx !== null ? (Number(binData[i][capIdx]) || 0) : 0;
+        const meta = binMetaMap[bId] || {};
+        const usage = usageSummary.byBin[bId] || { byUom: {}, hasInventory: false };
+        const metrics = _getBinCapacityMetrics(meta, usage);
         bins[bId] = {
           id: bId, code: binData[i][2], rackCode: rack.code,
           site: rack.site, location: rack.location,
-          maxCapacity: resolvedCap,
-          capacityUom: capUom || 'KG',
-          currentUsage: 0,
+          maxCapacity: Number(metrics.maxCapacity || 0),
+          capacityUom: _normalizeCapacityUom(meta.declaredCapacityUom || meta.capacityUom || metrics.capacityUom || 'KG'),
+          capacities: meta.capacities || {},
+          currentUsage: Number(metrics.currentUsage || 0),
+          capacityLines: metrics.capacityLines || [],
+          utilizationPct: Number(metrics.utilizationPct || 0),
+          capacityWarning: String(metrics.capacityWarning || ''),
           items: []
         };
       } else {
@@ -5920,19 +8157,20 @@ function getWarehouseLayout() {
       const qty = Number(row[CONFIG.INVENTORY_COLS.TOTAL_QUANTITY]);
       if (!bins[binId] || qty <= 0) continue;
 
-      bins[binId].currentUsage += qty;
-
       // NEW: Collect item info per bin row
       const itemId = String(row[CONFIG.INVENTORY_COLS.ITEM_ID] || '').trim();
       const rawCode = String(row[CONFIG.INVENTORY_COLS.ITEM_CODE_CACHE] || '').trim();
       const itemMeta = itemMap[itemId] || itemMap['__CODE__' + rawCode.toUpperCase()] || { code: rawCode || itemId, name: 'Unknown', uomCode: 'KG' };
-      const batchId = String(row[CONFIG.INVENTORY_COLS.BATCH_ID] || '').trim();
+      const batchRef = String(row[CONFIG.INVENTORY_COLS.BATCH_ID] || '').trim();
+      const batchInfo = _resolveBatchReference(itemMeta.code, batchRef);
+      const batchId = String((batchInfo && batchInfo.batchId) || batchRef).trim();
       const qaStatus = String(row[CONFIG.INVENTORY_COLS.QUALITY_STATUS] || 'PENDING').trim();
       const rowUom = String((CONFIG.INVENTORY_COLS.UOM !== undefined ? row[CONFIG.INVENTORY_COLS.UOM] : '') || '').trim();
 
       // Merge rows for same item+batch in same bin (can be split across multiple inv rows)
+      const version = String(row[CONFIG.INVENTORY_COLS.VERSION] || '').trim().toUpperCase();
       const existingIdx = bins[binId].items.findIndex(
-        it => it.itemId === itemId && it.batchId === batchId
+        it => it.itemId === itemId && it.batchId === batchId && it.version === version
       );
       if (existingIdx >= 0) {
         bins[binId].items[existingIdx].qty += qty;
@@ -5943,31 +8181,45 @@ function getWarehouseLayout() {
           itemName: itemMeta.name,
           uomCode: rowUom || itemMeta.uomCode || 'KG',
           batchId: batchId,
+          batchNumber: String((batchInfo && batchInfo.batchNumber) || batchRef || '').trim(),
+          version: version,
           qty: qty,
           qaStatus: qaStatus
         });
       }
     }
 
-    return Object.values(bins).map(function (b) {
-      const uomTotals = {};
-      (b.items || []).forEach(function (it) {
-        const u = String(it.uomCode || '').trim().toUpperCase();
-        if (!u) return;
-        uomTotals[u] = (uomTotals[u] || 0) + Number(it.qty || 0);
-      });
-      const uomKeys = Object.keys(uomTotals);
-      let usageUom = String(b.capacityUom || 'KG').trim().toUpperCase() || 'KG';
-      if (uomKeys.length === 1) {
-        usageUom = uomKeys[0];
-      } else if (uomKeys.length > 1) {
-        uomKeys.sort(function (a, c) { return Number(uomTotals[c] || 0) - Number(uomTotals[a] || 0); });
-        usageUom = uomKeys[0] || usageUom;
+    // --- NEW: Inject Packing Version 'Latest' Status ---
+    const packingMappings = {};
+    const pmSheet = ss.getSheetByName(CONFIG.SHEETS.PACKING_VERSION_MASTER);
+    if (pmSheet) {
+      const pmData = pmSheet.getDataRange().getValues();
+      const C = CONFIG.PACKING_VERSION_COLS;
+      for (let i = 1; i < pmData.length; i++) {
+        const isLatest = pmData[i][C.IS_LATEST] === true || String(pmData[i][C.IS_LATEST]).toUpperCase() === 'TRUE';
+        if (isLatest) {
+          const key = `${String(pmData[i][C.ITEM_CODE]).toUpperCase()}||${String(pmData[i][C.SYSTEM_VERSION]).toUpperCase()}||${String(pmData[i][C.BIN_ID]).toUpperCase()}`;
+          packingMappings[key] = String(pmData[i][C.REASON] || 'Latest');
+        }
       }
+    }
+
+    Object.keys(bins).forEach(bid => {
+      bins[bid].items.forEach(it => {
+        const key = `${String(it.itemCode).toUpperCase()}||${String(it.version).toUpperCase()}||${String(bid).toUpperCase()}`;
+        if (packingMappings[key]) {
+          it.isLatest = true;
+          it.latestReason = packingMappings[key];
+        }
+      });
+    });
+
+    return Object.values(bins).map(function (b) {
+      let usageUom = String(b.capacityUom || 'KG').trim().toUpperCase() || 'KG';
       return {
         ...b,
         usageUom: usageUom,
-        available: Math.max(0, b.maxCapacity - b.currentUsage)
+        available: Number((((b.capacityLines || [])[0] || {}).availableCapacity) || Math.max(0, Number(b.maxCapacity || 0) - Number(b.currentUsage || 0)))
       };
     });
   });
@@ -6001,12 +8253,13 @@ function doGet(e) {
 
     if (user.role === SECURITY.ROLES.WORKER) {
       switch (formType) {
-        case 'inward': htmlFile = 'InwardForm'; break;
+        case 'inward': htmlFile = e.parameter.mode ? 'InwardForm' : 'InwardLanding'; break;
         case 'transfer': htmlFile = 'TransferForm'; break;
         case 'dispatch': htmlFile = 'DispatchForm'; break;
         case 'production_request': htmlFile = 'ProductionRequestForm'; break;
         case 'warehouse': htmlFile = 'WarehouseLayout'; break;
         case 'inventory_dashboard': htmlFile = 'WarehouseItemDashboard'; break;
+        case 'packing_dashboard': htmlFile = 'PackingMaterialDashboard'; break;
         case 'dashboard': htmlFile = 'WorkerDashboard'; break;
         default: htmlFile = 'WorkerDashboard';
       }
@@ -6014,11 +8267,12 @@ function doGet(e) {
 
     else if (user.role === SECURITY.ROLES.MANAGER) {
       switch (formType) {
-        case 'inward': htmlFile = 'InwardForm'; break;
+        case 'inward': htmlFile = e.parameter.mode ? 'InwardForm' : 'InwardLanding'; break;
         case 'transfer': htmlFile = 'TransferForm'; break;
         case 'dispatch': htmlFile = 'DispatchForm'; break;
         case 'warehouse': htmlFile = 'WarehouseLayout'; break;
         case 'inventory_dashboard': htmlFile = 'WarehouseItemDashboard'; break;
+        case 'packing_dashboard': htmlFile = 'PackingMaterialDashboard'; break;
         case 'dashboard': htmlFile = 'ManagerDashboard'; break;
         case 'production_request': htmlFile = 'ProductionRequestForm'; break;
         case 'production_approval': htmlFile = 'ProductionApprovalForm'; break;
@@ -6038,14 +8292,16 @@ function doGet(e) {
         case 'qa_approval': htmlFile = 'QAApprovalForm'; break;
         case 'warehouse': htmlFile = 'WarehouseLayout'; break;
         case 'inventory_dashboard': htmlFile = 'WarehouseItemDashboard'; break;
+        case 'packing_dashboard': htmlFile = 'PackingMaterialDashboard'; break;
+       case 'production_approval': htmlFile = 'ProductionApprovalForm'; break;
         case 'ai_assistant': htmlFile = 'AIAssistant'; break;
-        case 'dashboard': htmlFile = 'QAApprovalForm'; break;
+        case 'dashboard': htmlFile = 'QADashboard'; break;
         case 'bulk_upload': htmlFile = 'BulkUploadMaster'; break;
         case 'reports':
           htmlFile = 'ReportsScreen';
           break;
 
-        default: htmlFile = 'QAApprovalForm';
+        default: htmlFile = 'QADashboard';
       }
     }
     else {
@@ -6055,6 +8311,7 @@ function doGet(e) {
     const template = HtmlService.createTemplateFromFile(htmlFile);
     template.userEmail = user.email;
     template.userRole = user.role;
+    template.inwardMode = String((e.parameter && e.parameter.mode) || '').trim().toLowerCase();
     if (htmlFile === 'Unauthorized') {
       template.email = user.email;
     }
@@ -6073,6 +8330,7 @@ function onEdit(e) {
       if (!e || !e.range) return;
       const sheet = e.range.getSheet();
       const sheetName = sheet.getName();
+      _clearScriptCachesForSheet(sheetName);
       if (sheetName === CONFIG.SHEETS.QA_EVENTS || sheetName === CONFIG.SHEETS.MOVEMENT) return;
       if (sheetName !== CONFIG.SHEETS.INVENTORY && sheetName !== CONFIG.SHEETS.BATCH) return;
       const row = e.range.getRow();
@@ -6138,40 +8396,88 @@ function onEdit(e) {
  */
 function getNextVersionForItemCode(itemCode) {
   return _withRequestCache(function () {
-    const code = String(itemCode || '').trim().toUpperCase();
+    const code = _getCanonicalItemCode(itemCode).toUpperCase();
     if (!code) return 'V1';
+
+    const cacheKey = 'INWARD_NEXT_VERSION_V4_' + code;
+    const cached = _getScriptCacheJson(cacheKey);
+    if (cached && cached.version) return cached.version;
 
     const ss = SpreadsheetApp.getActiveSpreadsheet();
 
     const invSheet = ss.getSheetByName(CONFIG.SHEETS.INVENTORY);
-    const movSheet = ss.getSheetByName(CONFIG.SHEETS.MOVEMENT);
+    const batchSheet = ss.getSheetByName(CONFIG.SHEETS.BATCH);
 
-    if (!invSheet && !movSheet) return 'V1';
+    if (!invSheet && !batchSheet) return 'V1';
 
     let maxVersion = 0;
+    const itemMaps = _getItemMasterMaps();
+    const codeNorm = code.toUpperCase();
 
-    function scan(data, codeCol, versionCol) {
+    function scanInventory(data) {
       for (let i = 1; i < data.length; i++) {
-        const rowCode = String(data[i][codeCol] || '').trim().toUpperCase();
-        if (rowCode !== code) continue;
+        let rowCode = String(data[i][CONFIG.INVENTORY_COLS.ITEM_CODE_CACHE] || '').trim().toUpperCase();
+        if (!rowCode) {
+          const itemId = String(data[i][CONFIG.INVENTORY_COLS.ITEM_ID] || '').trim().toUpperCase();
+          rowCode = String(itemMaps.idToCode[itemId] || '').trim().toUpperCase();
+        }
+        rowCode = String(itemMaps.codeDisplayByNorm[rowCode] || rowCode).trim().toUpperCase();
+        if (rowCode !== codeNorm) continue;
 
-        const raw = String(data[i][versionCol] || '').trim().toUpperCase();
+        const raw = String(data[i][CONFIG.INVENTORY_COLS.VERSION] || '').trim().toUpperCase();
+        const m = raw.match(/^V(\d+)$/);
+        if (m) maxVersion = Math.max(maxVersion, Number(m[1]));
+      }
+    }
+
+    function scanBatchMaster(data) {
+      for (let i = 1; i < data.length; i++) {
+        let rowCode = String(data[i][CONFIG.BATCH_COLS.ITEM_CODE] || '').trim().toUpperCase();
+        rowCode = String(itemMaps.codeDisplayByNorm[rowCode] || rowCode).trim().toUpperCase();
+        if (rowCode !== codeNorm) continue;
+
+        const raw = String(data[i][CONFIG.BATCH_COLS.VERSION] || '').trim().toUpperCase();
         const m = raw.match(/^V(\d+)$/);
         if (m) maxVersion = Math.max(maxVersion, Number(m[1]));
       }
     }
 
     if (invSheet) {
-      const invData = invSheet.getDataRange().getValues();
-      scan(invData, CONFIG.INVENTORY_COLS.ITEM_CODE_CACHE, CONFIG.INVENTORY_COLS.VERSION);
+      const invData = _getSheetValuesCached(invSheet.getName());
+      scanInventory(invData);
     }
 
-    if (movSheet) {
-      const movData = movSheet.getDataRange().getValues();
-      scan(movData, CONFIG.MOVEMENT_COLS.ITEM_CODE_CACHE || CONFIG.MOVEMENT_COLS.ITEM_ID, CONFIG.MOVEMENT_COLS.VERSION);
+    if (batchSheet) {
+      const batchData = _getSheetValuesCached(batchSheet.getName());
+      scanBatchMaster(batchData);
     }
 
-    return 'V' + (maxVersion + 1);
+    const nextVersion = 'V' + (maxVersion + 1);
+    _putScriptCacheJson(cacheKey, { version: nextVersion }, 60);
+    return nextVersion;
+  });
+}
+
+/**
+ * Backward-compatible helper for InwardForm.
+ * Returns both the next version and the item name for a given item code.
+ *
+ * @param {string} itemCode
+ * @returns {{version:string,name:string,code:string}}
+ */
+function getInwardItemDetails(itemCode) {
+  return _withRequestCache(function () {
+    const code = _getCanonicalItemCode(itemCode);
+    if (!code) {
+      return { version: 'V1', name: '', code: '' };
+    }
+
+    const item = getItemByCodeCached(code);
+    return {
+      version: getNextVersionForItemCode(code) || 'V1',
+      name: String((item && item.name) || code).trim(),
+      code: code
+    };
   });
 }
 
@@ -6258,6 +8564,10 @@ function getVersionInwardWarning(itemCode, nextVersion) {
     if (!itemCode || !nextVersion) return { message: '', bins: [] };
 
     const code = String(itemCode).trim().toUpperCase();
+    const cacheKey = 'INWARD_VERSION_WARN_V3_' + code + '_' + String(nextVersion || '').trim().toUpperCase();
+    const cached = _getScriptCacheJson(cacheKey);
+    if (cached) return cached;
+
     const uomCode = _getItemUomCode(code);
     const nextNum = _parseVersionNum(String(nextVersion).trim().toUpperCase());
     if (nextNum === null || nextNum <= 1) return { message: '', bins: [] };
@@ -6265,6 +8575,7 @@ function getVersionInwardWarning(itemCode, nextVersion) {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const invSheet = _getSheetOrThrow(ss, CONFIG.SHEETS.INVENTORY);
     const invData = _getSheetValuesCached(invSheet.getName());
+    const binMetaById = _buildBinMetaMap(ss);
 
     const existing = {};
 
@@ -6280,7 +8591,7 @@ function getVersionInwardWarning(itemCode, nextVersion) {
       if (!rowVer || rowVer === 'UNSPECIFIED') continue;
 
       const binId = String(row[CONFIG.INVENTORY_COLS.BIN_ID] || '').trim();
-      const binMeta = _getBinMetaById(binId);
+      const binMeta = binMetaById[binId] || null;
       const binLabel = binMeta ? (binMeta.binCode || binId) : binId;
 
       if (!existing[rowVer]) existing[rowVer] = [];
@@ -6293,7 +8604,11 @@ function getVersionInwardWarning(itemCode, nextVersion) {
     }
 
     const versions = Object.keys(existing);
-    if (versions.length === 0) return { message: '', bins: [] };
+    if (versions.length === 0) {
+      const empty = { message: '', bins: [] };
+      _putScriptCacheJson(cacheKey, empty, 45);
+      return empty;
+    }
 
     const summaries = versions.sort(function (a, b) {
       const an = _parseVersionNum(a) || 0;
@@ -6323,12 +8638,14 @@ function getVersionInwardWarning(itemCode, nextVersion) {
         (topBins ? ' [' + topBins + moreBins + ']' : '');
     });
 
-    return {
+    const result = {
       message: 'Older stock on shelves: ' + preview + extra + '. Receiving ' + nextVersion + '.',
       bins: versions,
       details: details,
       totalOlderQty: summaries.reduce(function (acc, s) { return acc + (Number(s.totalQty) || 0); }, 0)
     };
+    _putScriptCacheJson(cacheKey, result, 45);
+    return result;
   });
 }
 
@@ -6343,7 +8660,7 @@ function _parseVersionNum(v) {
 
 /**
  * Called by DispatchForm when user types a PO number in Consumption mode.
- * Returns the full item list for that approved PO so the form can auto-fill.
+ * Returns the full item list for that ready PO so the form can auto-fill.
  *
  * Returns error objects instead of throwing â€” client checks .error field.
  *
@@ -6352,73 +8669,189 @@ function _parseVersionNum(v) {
  */
 function getApprovedProductionOrderItems(poNo) {
   return protect(function () {
-    if (!poNo) return { error: 'Production Order number required.' };
+    return _withRequestCache(function () {
+      if (!poNo) return { error: 'Production Order number required.' };
 
-    const ref = String(poNo).trim();
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const sheet = _getSheetOrThrow(ss, CONFIG.SHEETS.PRODUCTION_LEDGER);
-    const data = _getSheetValuesCached(sheet.getName());
-    const cols = CONFIG.PRODUCTION_LEDGER_COLS;
+      const ref = String(poNo).trim();
+      const cols = CONFIG.PRODUCTION_LEDGER_COLS;
+      const rows = _getProductionLedgerOrderRows(ref);
 
-    var poStatus = null;
-    var matchedRows = [];
+      var poStatus = null;
+      var matchedRows = [];
 
-    for (var i = 1; i < data.length; i++) {
-      const row = data[i];
-      const rowRef = String(row[cols.ORDER_ID] || '').trim();
-      if (rowRef !== ref) continue;
+      for (var i = 0; i < rows.length; i++) {
+        const row = rows[i].row;
+        const statusIdx = _detectProductionLedgerStatusIdx(row, cols.STATUS);
+        const status = String(row[statusIdx] || '').trim().toUpperCase();
+        poStatus = status; // last seen status for this PO (all rows should match)
 
-      const statusIdx = _detectProductionLedgerStatusIdx(row, cols.STATUS);
-      const status = String(row[statusIdx] || '').trim().toUpperCase();
-      poStatus = status; // last seen status for this PO (all rows should match)
+        if (status !== 'APPROVED' && status !== 'OPEN') continue;
 
-      if (status !== 'APPROVED') continue;
+        const itemId = String(row[cols.ITEM_ID] || '').trim();
+        const itemCode = _getItemCodeById(itemId) || itemId;
+        const ledgerBatch = String(row[cols.BATCH_ID] || '').trim();
+        const jobOrderNo = (ledgerBatch && ledgerBatch.toUpperCase() !== 'TBD') ? ledgerBatch : '';
+        const version = String(row[cols.VERSION] || '').trim();
+        const requested = Number(row[cols.QTY_REQUESTED]) || 0;
+        const issued = Number(row[cols.QTY_ISSUED]) || 0;
+        const returned = Number(row[cols.QTY_RETURNED]) || 0;
+        const rejected = Number(row[cols.QTY_REJECTED]) || 0;
+        const netOutstandingRaw = Number(row[cols.NET_OUTSTANDING]);
+        const remaining = isFinite(netOutstandingRaw) ? Math.max(0, netOutstandingRaw) : Math.max(0, requested - issued + returned);
 
-      const itemId = String(row[cols.ITEM_ID] || '').trim();
-      const itemCode = _getItemCodeById(itemId) || itemId;
-      const ledgerBatch = String(row[cols.BATCH_ID] || '').trim();
-      const jobOrderNo = (ledgerBatch && ledgerBatch.toUpperCase() !== 'TBD') ? ledgerBatch : '';
-      const version = String(row[cols.VERSION] || '').trim();
-      const requested = Number(row[cols.QTY_REQUESTED]) || 0;
-      const issued = Number(row[cols.QTY_ISSUED]) || 0;
-      const returned = Number(row[cols.QTY_RETURNED]) || 0;
-      const rejected = Number(row[cols.QTY_REJECTED]) || 0;
-      const netOutstandingRaw = Number(row[cols.NET_OUTSTANDING]);
-      const remaining = isFinite(netOutstandingRaw) ? Math.max(0, netOutstandingRaw) : Math.max(0, requested - issued + returned);
-
-      matchedRows.push({
-        itemId: itemId,
-        itemCode: itemCode,
-        uomCode: _getItemUomCode(itemCode),
-        batchId: (ledgerBatch.toUpperCase() === 'TBD' ? '' : ledgerBatch),
-        jobOrderNo: jobOrderNo,
-        version: version,
-        requested: requested,
-        issued: issued,
-        returned: returned,
-        rejected: rejected,
-        remaining: remaining
-      });
-    }
-
-    if (matchedRows.length === 0) {
-      if (poStatus && poStatus !== 'APPROVED') {
-        return { error: 'PO ' + ref + ' is not approved yet. Current status: ' + poStatus + '. Ask your manager to approve it first.' };
+        matchedRows.push({
+          ledgerRowIndex: rows[i].rowIndex,
+          itemId: itemId,
+          itemCode: itemCode,
+          uomCode: _getItemUomCode(itemCode),
+          batchId: (ledgerBatch.toUpperCase() === 'TBD' ? '' : ledgerBatch),
+          jobOrderNo: jobOrderNo,
+          version: version,
+          requested: requested,
+          issued: issued,
+          returned: returned,
+          rejected: rejected,
+          remaining: remaining
+        });
       }
-      return { error: 'Production Order "' + ref + '" not found.' };
+
+      if (matchedRows.length === 0) {
+        if (poStatus && poStatus !== 'APPROVED' && poStatus !== 'OPEN') {
+          return { error: 'PO ' + ref + ' is not ready yet. Current status: ' + poStatus + '.' };
+        }
+        return { error: 'Production Order "' + ref + '" not found.' };
+      }
+
+      // Filter out items already fully issued
+      const pendingItems = matchedRows.filter(function (r) { return r.remaining > 0; });
+      if (pendingItems.length === 0) {
+        return { error: 'All items for PO ' + ref + ' have already been fully issued.' };
+      }
+
+      return {
+        poNo: ref,
+        status: 'READY',
+        items: pendingItems
+      };
+    });
+  });
+}
+
+function _buildConsumptionSourceKey(batchId, binId) {
+  return encodeURIComponent(String(batchId || '')) + '||' + encodeURIComponent(String(binId || ''));
+}
+
+function _getConsumptionSourceOptionsForItems(items) {
+  const wantedCodes = {};
+  const wantedIds = {};
+  (items || []).forEach(function (item) {
+    const code = String(item && item.itemCode || '').trim().toUpperCase();
+    const id = String(item && item.itemId || '').trim().toUpperCase();
+    if (code) wantedCodes[code] = true;
+    if (id) wantedIds[id] = true;
+  });
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const invSheet = _getSheetOrThrow(ss, CONFIG.SHEETS.INVENTORY);
+  const data = _getSheetValuesCached(invSheet.getName());
+  const binMeta = _buildBinMetaMap(ss);
+  const itemIdToCode = {};
+  const grouped = {};
+
+  for (let i = 1; i < data.length; i++) {
+    const row = data[i];
+    const qty = Number(row[CONFIG.INVENTORY_COLS.TOTAL_QUANTITY]) || 0;
+    if (qty <= 0) continue;
+
+    const resolvedCode = String(_resolveInventoryItemCode(
+      row,
+      row[CONFIG.INVENTORY_COLS.ITEM_CODE_CACHE],
+      row[CONFIG.INVENTORY_COLS.ITEM_ID],
+      itemIdToCode
+    ) || '').trim();
+    const codeU = resolvedCode.toUpperCase();
+    const rowIdU = String(row[CONFIG.INVENTORY_COLS.ITEM_ID] || '').trim().toUpperCase();
+    if (!wantedCodes[codeU] && !wantedIds[rowIdU]) continue;
+
+    const binId = String(row[CONFIG.INVENTORY_COLS.BIN_ID] || '').trim();
+    if (!binId) continue;
+
+    const batchInfo = _resolveBatchReference(resolvedCode, row[CONFIG.INVENTORY_COLS.BATCH_ID]);
+    const batchId = String((batchInfo && batchInfo.batchId) || row[CONFIG.INVENTORY_COLS.BATCH_ID] || '').trim();
+    const qa = String(row[CONFIG.INVENTORY_COLS.QUALITY_STATUS] || '').trim().toUpperCase();
+    const key = codeU;
+    const optionKey = _buildConsumptionSourceKey('', binId);
+    const meta = binMeta[binId] || {};
+
+    if (!grouped[key]) grouped[key] = {};
+    if (!grouped[key][optionKey]) {
+      grouped[key][optionKey] = {
+        optionKey: optionKey,
+        binId: binId,
+        batchId: '',
+        binCode: String(meta.binCode || binId).trim(),
+        displayLabel: String(meta.displayLabel || meta.binCode || binId).trim(),
+        capacityUom: String(meta.capacityUom || '').trim(),
+        site: String(row[CONFIG.INVENTORY_COLS.SITE] || meta.site || '').trim(),
+        location: String(row[CONFIG.INVENTORY_COLS.LOCATION] || meta.location || '').trim(),
+        totalQty: 0,
+        approvedQty: 0,
+        pendingQty: 0,
+        rejectedQty: 0,
+        batchBuckets: {}
+      };
     }
 
-    // Filter out items already fully issued
-    const pendingItems = matchedRows.filter(function (r) { return r.remaining > 0; });
-    if (pendingItems.length === 0) {
-      return { error: 'All items for PO ' + ref + ' have already been fully issued.' };
-    }
+    const opt = grouped[key][optionKey];
+    opt.totalQty += qty;
+    if (qa === 'APPROVED' || qa === 'OVERRIDDEN') opt.approvedQty += qty;
+    else if (qa === 'REJECTED' || qa === 'HOLD') opt.rejectedQty += qty;
+    else opt.pendingQty += qty;
 
-    return {
-      poNo: ref,
-      status: 'APPROVED',
-      items: pendingItems
-    };
+    const bucketKey = batchId || '__NO_BATCH__';
+    if (!opt.batchBuckets[bucketKey]) {
+      opt.batchBuckets[bucketKey] = { batchId: batchId, totalQty: 0, approvedQty: 0 };
+    }
+    opt.batchBuckets[bucketKey].totalQty += qty;
+    if (qa === 'APPROVED' || qa === 'OVERRIDDEN') {
+      opt.batchBuckets[bucketKey].approvedQty += qty;
+    }
+  }
+
+  const out = {};
+  Object.keys(grouped).forEach(function (codeU) {
+    out[codeU] = Object.keys(grouped[codeU]).map(function (k) {
+      const opt = grouped[codeU][k];
+      opt.batchBuckets = Object.keys(opt.batchBuckets).map(function (bk) {
+        return opt.batchBuckets[bk];
+      }).sort(function (a, b) {
+        if (b.approvedQty !== a.approvedQty) return b.approvedQty - a.approvedQty;
+        return b.totalQty - a.totalQty;
+      });
+      return opt;
+    }).sort(function (a, b) {
+      if (b.approvedQty !== a.approvedQty) return b.approvedQty - a.approvedQty;
+      return b.totalQty - a.totalQty;
+    });
+  });
+  return out;
+}
+
+function getConsumptionLoadData(poNo) {
+  return protect(function () {
+    return _withRequestCache(function () {
+      const po = getApprovedProductionOrderItems(poNo);
+      if (!po || po.error) return po;
+
+      const sourceOptionsByItem = _getConsumptionSourceOptionsForItems(po.items || []);
+      po.items = (po.items || []).map(function (item) {
+        const codeU = String(item && item.itemCode || '').trim().toUpperCase();
+        const copy = Object.assign({}, item);
+        copy.sourceOptions = sourceOptionsByItem[codeU] || [];
+        return copy;
+      });
+      return po;
+    });
   });
 }
 
@@ -6605,8 +9038,9 @@ function getItemBatchStockSummary(itemCode) {
       const rowCode = String(row[CONFIG.INVENTORY_COLS.ITEM_CODE_CACHE] || '').trim().toUpperCase();
       if (rowCode !== code) continue;
 
-      const batchId = String(row[CONFIG.INVENTORY_COLS.BATCH_ID] || '').trim();
-      if (!batchId) continue;
+      const batchRef = String(row[CONFIG.INVENTORY_COLS.BATCH_ID] || '').trim();
+      if (!batchRef) continue;
+      const batchId = String((_resolveBatchReference(code, batchRef).batchId) || batchRef).trim();
 
       const status = String(row[CONFIG.INVENTORY_COLS.QUALITY_STATUS] || '').trim().toUpperCase();
       const binId = String(row[CONFIG.INVENTORY_COLS.BIN_ID] || '').trim();
@@ -6621,7 +9055,10 @@ function getItemBatchStockSummary(itemCode) {
           approved: 0,
           pending: 0,
           total: 0,
-          binSet: {}
+          binSet: {},
+          fifoTs: Number.POSITIVE_INFINITY,
+          fifoGin: '',
+          fifoInvTs: Number.POSITIVE_INFINITY
         };
       }
 
@@ -6635,6 +9072,18 @@ function getItemBatchStockSummary(itemCode) {
       if (binId) {
         batchMap[batchId].binSet[binId] = true;
       }
+
+      const qdTs = _toTimestamp(row[CONFIG.INVENTORY_COLS.QUALITY_DATE], NaN);
+      const invTs = _getInventoryCreatedTs(row);
+      const gin = String(row[CONFIG.INVENTORY_COLS.GIN_NO] || '').trim();
+      const candidateTs = isFinite(qdTs) ? qdTs : (isFinite(invTs) ? invTs : Number.POSITIVE_INFINITY);
+      const currentTs = Number(batchMap[batchId].fifoTs);
+      if (candidateTs < currentTs ||
+        (candidateTs === currentTs && gin && (!batchMap[batchId].fifoGin || gin.localeCompare(batchMap[batchId].fifoGin) < 0))) {
+        batchMap[batchId].fifoTs = candidateTs;
+        batchMap[batchId].fifoGin = gin;
+        batchMap[batchId].fifoInvTs = isFinite(invTs) ? invTs : Number.POSITIVE_INFINITY;
+      }
     }
 
     // Convert map to array
@@ -6643,16 +9092,32 @@ function getItemBatchStockSummary(itemCode) {
       const batch = batchMap[batchId];
       result.push({
         batchId: batch.batchId,
+        batchNumber: _getBatchDisplayNumber(code, batch.batchId),
         itemId: batch.itemId,
         approved: batch.approved,
         pending: batch.pending,
         total: batch.total,
-        binCount: Object.keys(batch.binSet).length
+        binCount: Object.keys(batch.binSet).length,
+        fifoTs: batch.fifoTs,
+        fifoGin: batch.fifoGin,
+        fifoInvTs: batch.fifoInvTs
       });
     });
 
-    // Sort by total stock descending
-    result.sort(function (a, b) { return b.total - a.total; });
+    // FIFO first: oldest quality date / inventory anchor first, not largest stock.
+    result.sort(function (a, b) {
+      const at = Number(a.fifoTs);
+      const bt = Number(b.fifoTs);
+      const aHas = isFinite(at);
+      const bHas = isFinite(bt);
+      if (aHas && bHas && at !== bt) return at - bt;
+      if (aHas !== bHas) return aHas ? -1 : 1;
+      const ag = String(a.fifoGin || '');
+      const bg = String(b.fifoGin || '');
+      if (ag && bg && ag !== bg) return ag.localeCompare(bg);
+      if (!!ag !== !!bg) return ag ? -1 : 1;
+      return String(a.batchNumber || a.batchId || '').localeCompare(String(b.batchNumber || b.batchId || ''));
+    });
 
     return result;
   });
@@ -6735,7 +9200,7 @@ function submitReturnV2Fixed(form) {
 
     const ginForInventory = String(form.refNote || '').trim() || ('RET-' + form.prodOrderNo);
     if (!isDeadStock) {
-      _assertBinCapacity(form.binId, qtyKg);
+      _assertBinCapacity(form.binId, form.quantity, null, ids.itemCode, form.uom);
     }
 
     let created = null;
@@ -6893,7 +9358,7 @@ function submitReturnBatch(form) {
       if (!ledger.version) throw new Error('Version not found for ' + item.itemCode + ' in ledger');
 
       if (!isDeadStock) {
-        _assertBinCapacity(item.binId, qtyKg);
+        _assertBinCapacity(item.binId, item.quantity, null, ids.itemCode, item.uom);
       }
 
       // Append suffix for each line within same return batch for traceability
@@ -7049,7 +9514,7 @@ function _createInventoryRowV2(params) {
   }
   // FIX-4: Expiry Date
   if (CONFIG.INVENTORY_COLS.EXPIRY_DATE !== undefined) {
-    row[CONFIG.INVENTORY_COLS.EXPIRY_DATE] = params.expiryDate || '';
+    row[CONFIG.INVENTORY_COLS.EXPIRY_DATE] = _normalizeInwardExpiryDate(params.expiryDate);
   }
   row[CONFIG.INVENTORY_COLS.LAST_UPDATED] = new Date();
   if (CONFIG.INVENTORY_COLS.INWARD_DATE !== undefined) {
@@ -7122,7 +9587,6 @@ function submitProductionRequestV3(form) {
 
             if (rowCode === codeU && rowBatch === batchU && rowQty > 0) {
               itemId = String(invData[i][CONFIG.INVENTORY_COLS.ITEM_ID] || '').trim();
-              Logger.log('[PROD_REQ] Found item_id=' + itemId + ' for ' + itemCode + ' batch ' + batchId + ' in inventory');
               break;
             }
           }
@@ -7132,7 +9596,6 @@ function submitProductionRequestV3(form) {
       // Fallback to Item_Master only if batch not specified or not found in inventory
       if (!itemId) {
         itemId = getItemIdByCode(itemCode) || itemCode;
-        Logger.log('[PROD_REQ] Using Item_Master item_id=' + itemId + ' for ' + itemCode + ' (no batch or batch not in inventory)');
       }
 
       const qty = Number(item.quantity);
@@ -7141,7 +9604,7 @@ function submitProductionRequestV3(form) {
 
       rowsToWrite.push([
         orderRef, itemId, finalBatchId, 'TBD',
-        qtyKg, 0, 0, qtyKg, 0, 'OPEN', new Date()
+        qtyKg, 0, 0, qtyKg, 0, 'APPROVED', new Date()
       ]);
 
       // Store remarks as a PROD_REQUEST movement log entry
@@ -7165,6 +9628,7 @@ function submitProductionRequestV3(form) {
     const startRow = sheet.getLastRow() + 1;
     sheet.getRange(startRow, 1, rowsToWrite.length, rowsToWrite[0].length).setValues(rowsToWrite);
     rowsToWrite.forEach(function (r) { _appendSheetCacheRow(CONFIG.SHEETS.PRODUCTION_LEDGER, r); });
+    _clearScriptCachesForSheet(CONFIG.SHEETS.PRODUCTION_LEDGER);
 
     // Write remarks to movement log (non-blocking)
     if (movementLogs.length > 0) {
@@ -8478,72 +10942,79 @@ function sendMinStockAlerts() {
   return _withRequestCache(function () {
     try {
       const props = PropertiesService.getScriptProperties();
-      const raw = String(props.getProperty('ALERT_EMAILS') || props.getProperty('ALERT_EMAIL') || '').trim();
-      if (!raw) {
+      const emails = _getMinStockAlertRecipients_();
+      if (emails.length === 0) {
         Logger.log('Min stock alert skipped: ALERT_EMAILS not configured.');
         return;
       }
-      const emails = raw.split(/[;,]/).map(function (e) { return e.trim(); }).filter(Boolean);
-      if (emails.length === 0) {
-        Logger.log('Min stock alert skipped: no valid emails.');
-        return;
+
+      // Business-facing alerts must match the warehouse item dashboard:
+      // aggregate stock by item_code, even if legacy item_ids differ.
+      const itemMaps = _getItemMasterMaps();
+      const codeToMinStock = itemMaps.codeToMinStock || {};
+
+      // Build inventory totals keyed by item_code from raw Inventory_Balance rows.
+      const invByCode = {};
+      {
+        const ss2 = SpreadsheetApp.getActiveSpreadsheet();
+        const invSheet2 = _getSheetOrThrow(ss2, CONFIG.SHEETS.INVENTORY);
+        const invRows = _getSheetValuesCached(invSheet2.getName());
+        for (let ii = 1; ii < invRows.length; ii++) {
+          const qty = Number(invRows[ii][CONFIG.INVENTORY_COLS.TOTAL_QUANTITY]) || 0;
+          if (qty <= 0) continue;
+          const status = _normalizeQaStatus(invRows[ii][CONFIG.INVENTORY_COLS.QUALITY_STATUS] || 'PENDING');
+          if (status === 'REJECTED' || status === 'HOLD') continue;
+          const rawItemId = String(invRows[ii][CONFIG.INVENTORY_COLS.ITEM_ID] || '').trim().toUpperCase();
+          const rawCode = String(invRows[ii][CONFIG.INVENTORY_COLS.ITEM_CODE_CACHE] || itemMaps.idToCode[rawItemId] || '').trim().toUpperCase();
+          if (!rawCode) continue;
+          const site = String(invRows[ii][CONFIG.INVENTORY_COLS.SITE] || '').trim();
+          const location = String(invRows[ii][CONFIG.INVENTORY_COLS.LOCATION] || '').trim();
+          if (!invByCode[rawCode]) invByCode[rawCode] = { totalQty: 0, bySiteLocation: {} };
+          invByCode[rawCode].totalQty += qty;
+          const slKey = site + '||' + location;
+          invByCode[rawCode].bySiteLocation[slKey] = (invByCode[rawCode].bySiteLocation[slKey] || 0) + qty;
+        }
       }
 
-      const minMap = {};
-      const itemMaps = _getItemMasterMaps();
-      Object.keys(itemMaps.codeToMinStock).forEach(function (codeNorm) {
-        const minLevel = Number(itemMaps.codeToMinStock[codeNorm] || 0);
-        if (!(minLevel > 0)) return;
-        const code = itemMaps.codeDisplayByNorm[codeNorm] || codeNorm;
-        minMap[String(codeNorm || '').trim().toUpperCase()] = {
-          code: String(code || codeNorm).trim(),
-          codeNorm: String(codeNorm || '').trim().toUpperCase(),
-          name: String(itemMaps.codeToName[codeNorm] || code),
-          min: minLevel,
-          uom: String(itemMaps.codeToUom[codeNorm] || 'KG').trim() || 'KG'
-        };
-      });
-
-      const invAgg = _aggregateInventorySnapshotByItem();
       const today = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
-      const notifiedItems = []; // NEW: structured data instead of text lines
-      const invCodes = Object.keys(invAgg || {});
+      const notifiedItems = [];
       let belowThresholdCount = 0;
       let dedupedCount = 0;
 
-      // Alert only for items that currently exist in Inventory_Balance (>0 qty rows).
-      invCodes.forEach(function (inventoryCode) {
-        const codeNorm = String(inventoryCode || '').trim().toUpperCase();
-        const minInfo = minMap[codeNorm];
-        if (!minInfo) return;
-        const current = Number((invAgg[inventoryCode] || {}).totalQty || 0);
-        if (current > minInfo.min) return;
+      // Check each item_code that has min_stock configured and stock in inventory.
+      Object.keys(codeToMinStock).forEach(function (codeNorm) {
+        const minStock = Number(codeToMinStock[codeNorm] || 0);
+        if (!(minStock > 0)) return;
+        const invEntry = invByCode[codeNorm];
+        if (!invEntry) return; // no stock in inventory at all — skip (nothing to alert on)
+        const current = Number(invEntry.totalQty || 0);
+        if (current > minStock) return;
         belowThresholdCount += 1;
 
-        const lastKey = 'MIN_STOCK_ALERT_LAST_' + minInfo.codeNorm;
+        const lastKey = 'MIN_STOCK_ALERT_LAST_' + codeNorm;
         const lastSent = String(props.getProperty(lastKey) || '').trim();
-        if (lastSent === today) {
+        const legacySentToday = Object.keys(itemMaps.idToItemInfo || {}).some(function (idKey) {
+          const legacyInfo = (itemMaps.idToItemInfo || {})[idKey];
+          if (!legacyInfo || String(legacyInfo.codeNorm || '').trim().toUpperCase() !== codeNorm) return false;
+          return String(props.getProperty('MIN_STOCK_ALERT_LAST_' + idKey) || '').trim() === today;
+        });
+        if (lastSent === today || legacySentToday) {
           dedupedCount += 1;
           return;
         }
 
-        const bySite = (invAgg[inventoryCode] || {}).bySiteLocation || {};
+        const bySite = invEntry.bySiteLocation || {};
         const locations = Object.keys(bySite).map(function (k) {
           const parts = k.split('||');
-          return {
-            site: parts[0] || '-',
-            location: parts[1] || '-',
-            qty: Number(bySite[k] || 0)
-          };
+          return { site: parts[0] || '-', location: parts[1] || '-', qty: Number(bySite[k] || 0) };
         });
-
         notifiedItems.push({
-          code: minInfo.code,
-          codeNorm: minInfo.codeNorm,
-          name: minInfo.name,
+          code: itemMaps.codeDisplayByNorm[codeNorm] || codeNorm,
+          codeNorm: codeNorm,
+          name: itemMaps.codeToName[codeNorm] || (itemMaps.codeDisplayByNorm[codeNorm] || codeNorm),
           current: current,
-          min: minInfo.min,
-          uom: minInfo.uom,
+          min: minStock,
+          uom: itemMaps.codeToUom[codeNorm] || 'KG',
           locations: locations
         });
       });
@@ -8551,7 +11022,9 @@ function sendMinStockAlerts() {
       if (notifiedItems.length === 0) {
         Logger.log(
           'Min stock alert: no items below threshold today. ' +
-          `inventory_items=${invCodes.length}, below_threshold=${belowThresholdCount}, deduped_today=${dedupedCount}`
+          'items_with_minstock=' + Object.keys(codeToMinStock).length +
+          ', below_threshold=' + belowThresholdCount +
+          ', deduped_today=' + dedupedCount
         );
         return;
       }
@@ -8567,9 +11040,9 @@ function sendMinStockAlerts() {
         htmlBody: htmlBody
       });
 
-      // Mark sent for today
+      // Mark sent for today — key is item_id (codeNorm field stores item_id after fix)
       notifiedItems.forEach(function (item) {
-        props.setProperty('MIN_STOCK_ALERT_LAST_' + String(item.codeNorm || item.code || '').trim().toUpperCase(), today);
+        props.setProperty('MIN_STOCK_ALERT_LAST_' + String(item.codeNorm || '').trim().toUpperCase(), today);
       });
 
       Logger.log('Min stock alert sent for ' + notifiedItems.length + ' item(s).');
@@ -8580,39 +11053,50 @@ function sendMinStockAlerts() {
 }
 
 function getMinStockAlertPreview() {
+  // Uses item_code aggregation - same logic as sendMinStockAlerts.
   return _withRequestCache(function () {
     const props = PropertiesService.getScriptProperties();
     const today = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
     const itemMaps = _getItemMasterMaps();
-    const minMap = {};
+    const codeToMinStock = itemMaps.codeToMinStock || {};
 
-    Object.keys(itemMaps.codeToMinStock).forEach(function (codeNorm) {
-      const minLevel = Number(itemMaps.codeToMinStock[codeNorm] || 0);
-      if (!(minLevel > 0)) return;
-      const code = itemMaps.codeDisplayByNorm[codeNorm] || codeNorm;
-      minMap[String(codeNorm || '').trim().toUpperCase()] = {
-        code: String(code || codeNorm).trim(),
-        codeNorm: String(codeNorm || '').trim().toUpperCase(),
-        min: minLevel,
-        uom: String(itemMaps.codeToUom[codeNorm] || 'KG').trim() || 'KG'
-      };
-    });
+    // Build inventory totals keyed by item_code, matching the email and dashboard.
+    const invByCode = {};
+    const ss2 = SpreadsheetApp.getActiveSpreadsheet();
+    const invSheet2 = _getSheetOrThrow(ss2, CONFIG.SHEETS.INVENTORY);
+    const invRows = _getSheetValuesCached(invSheet2.getName());
+    for (let ii = 1; ii < invRows.length; ii++) {
+      const qty = Number(invRows[ii][CONFIG.INVENTORY_COLS.TOTAL_QUANTITY]) || 0;
+      if (qty <= 0) continue;
+      const status = _normalizeQaStatus(invRows[ii][CONFIG.INVENTORY_COLS.QUALITY_STATUS] || 'PENDING');
+      if (status === 'REJECTED' || status === 'HOLD') continue;
+      const rawItemId = String(invRows[ii][CONFIG.INVENTORY_COLS.ITEM_ID] || '').trim().toUpperCase();
+      const rawCode = String(invRows[ii][CONFIG.INVENTORY_COLS.ITEM_CODE_CACHE] || itemMaps.idToCode[rawItemId] || '').trim().toUpperCase();
+      if (!rawCode) continue;
+      if (!invByCode[rawCode]) invByCode[rawCode] = { totalQty: 0 };
+      invByCode[rawCode].totalQty += qty;
+    }
 
-    const invAgg = _aggregateInventorySnapshotByItem();
     const rows = [];
-    Object.keys(invAgg || {}).forEach(function (inventoryCode) {
-      const codeNorm = String(inventoryCode || '').trim().toUpperCase();
-      const minInfo = minMap[codeNorm];
-      if (!minInfo) return;
-      const current = Number((invAgg[inventoryCode] || {}).totalQty || 0);
-      const lastSent = String(props.getProperty('MIN_STOCK_ALERT_LAST_' + minInfo.codeNorm) || '').trim();
+    Object.keys(codeToMinStock).forEach(function (codeNorm) {
+      const minStock = Number(codeToMinStock[codeNorm] || 0);
+      if (!(minStock > 0)) return;
+      const invEntry = invByCode[codeNorm];
+      if (!invEntry) return;
+      const current = Number(invEntry.totalQty || 0);
+      const lastSent = String(props.getProperty('MIN_STOCK_ALERT_LAST_' + codeNorm) || '').trim();
+      const legacySentToday = Object.keys(itemMaps.idToItemInfo || {}).some(function (idKey) {
+        const legacyInfo = (itemMaps.idToItemInfo || {})[idKey];
+        if (!legacyInfo || String(legacyInfo.codeNorm || '').trim().toUpperCase() !== codeNorm) return false;
+        return String(props.getProperty('MIN_STOCK_ALERT_LAST_' + idKey) || '').trim() === today;
+      });
       rows.push({
-        itemCode: minInfo.code,
+        itemCode: itemMaps.codeDisplayByNorm[codeNorm] || codeNorm,
         current: current,
-        min: minInfo.min,
-        uom: minInfo.uom,
-        belowOrEqualMin: current <= minInfo.min,
-        alreadySentToday: lastSent === today,
+        min: minStock,
+        uom: itemMaps.codeToUom[codeNorm] || 'KG',
+        belowOrEqualMin: current <= minStock,
+        alreadySentToday: lastSent === today || legacySentToday,
         lastSentDate: lastSent || ''
       });
     });
@@ -8622,7 +11106,7 @@ function getMinStockAlertPreview() {
 
     return {
       today: today,
-      inventoryTrackedItems: Object.keys(invAgg || {}).length,
+      inventoryTrackedItems: Object.keys(invByCode).length,
       withMinConfigInInventory: rows.length,
       belowThresholdCount: below.length,
       willSendCount: willSend.length,
@@ -8673,8 +11157,7 @@ function getMinStockAlertStatus() {
   return protect(function () {
     requireRole(SECURITY.ROLES.MANAGER);
     const props = PropertiesService.getScriptProperties();
-    const raw = String(props.getProperty('ALERT_EMAILS') || props.getProperty('ALERT_EMAIL') || '').trim();
-    const emails = raw ? raw.split(/[;,]/).map(function (e) { return e.trim(); }).filter(Boolean) : [];
+    const emails = _getMinStockAlertRecipients_();
     const dedupKeys = Object.keys(props.getProperties()).filter(function (k) {
       return String(k || '').indexOf('MIN_STOCK_ALERT_LAST_') === 0;
     });
@@ -8741,7 +11224,7 @@ function _buildAlertEmailHtml(items, emails) {
     if (item.locations && item.locations.length > 0) {
       const chips = item.locations.map(function (loc) {
         return '<span class="loc-chip">' + _esc(loc.site) + ' / ' + _esc(loc.location) +
-          ' <span class="qty-inline">— ' + loc.qty + ' ' + _esc(item.uom) + '</span></span>';
+          ' <span class="qty-inline">- ' + _fmtAlertQty(loc.qty, item.uom) + '</span></span>';
       }).join('');
       locHtml = '<div class="section-label" style="margin-top:10px;margin-bottom:6px">Location - </div>' +
         '<div class="locations">' + chips + '</div>';
@@ -8761,11 +11244,11 @@ function _buildAlertEmailHtml(items, emails) {
       '<div class="qty-row">',
       '<div class="qty-box">',
       '<div class="label">Current Stock</div>',
-      '<div class="value danger">' + item.current + '<span class="uom">' + _esc(item.uom) + '</span></div>',
+      '<div class="value danger">' + _fmtAlertQty(item.current, item.uom) + '</div>',
       '</div>',
       '<div class="qty-box">',
       '<div class="label">Minimum Level</div>',
-      '<div class="value min">' + item.min + '<span class="uom">' + _esc(item.uom) + '</span></div>',
+      '<div class="value min">' + _fmtAlertQty(item.min, item.uom) + '</div>',
       '</div>',
       '</div>',
       '<div class="fill-bar-wrap">',
@@ -8884,12 +11367,27 @@ function _esc(s) {
 // END SECTION 13
 // ─────────────────────────────────────────────────────────────────────
 
+function _fmtAlertQty(qty, uom) {
+  const num = Number(qty) || 0;
+  const shown = Math.abs(num % 1) < 0.000001 ? String(Math.round(num)) : num.toFixed(2);
+  return shown + (uom ? ' ' + _esc(uom) : '');
+}
+
 function _appendInventoryRow(rowArray, sheet) {
   if (!sheet) {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     sheet = _getSheetOrThrow(ss, CONFIG.SHEETS.INVENTORY);
   }
   sheet.appendRow(rowArray);
+}
+
+function _normalizeExpiryDateForReports(value) {
+  if (!value) return _getDefaultInwardExpiryDate();
+  const parsed = value instanceof Date ? value : new Date(value);
+  if (!(parsed instanceof Date) || isNaN(parsed.getTime()) || parsed.getTime() === 0) {
+    return _getDefaultInwardExpiryDate();
+  }
+  return parsed;
 }
 
 /**
@@ -9103,8 +11601,7 @@ function getExpiredStockReportData() {
         var qty = Number(row[CONFIG.INVENTORY_COLS.TOTAL_QUANTITY]) || 0;
         var expiryRaw = row[CONFIG.INVENTORY_COLS.EXPIRY_DATE];
         if (qty <= 0 || !expiryRaw) continue;
-        var expiry = expiryRaw instanceof Date ? expiryRaw : new Date(expiryRaw);
-        if (isNaN(expiry.getTime())) continue;
+        var expiry = _normalizeExpiryDateForReports(expiryRaw);
         if (expiry < now) {
           var daysOverdue = Math.floor((now - expiry) / 86400000);
           expired.push({
@@ -9148,8 +11645,7 @@ function getExpiringStockReportData() {
         var qty = Number(row[CONFIG.INVENTORY_COLS.TOTAL_QUANTITY]) || 0;
         var expiryRaw = row[CONFIG.INVENTORY_COLS.EXPIRY_DATE];
         if (qty <= 0 || !expiryRaw) continue;
-        var expiry = expiryRaw instanceof Date ? expiryRaw : new Date(expiryRaw);
-        if (isNaN(expiry.getTime())) continue;
+        var expiry = _normalizeExpiryDateForReports(expiryRaw);
         if (expiry > now && expiry <= thirtyDaysFromNow) {
           var daysUntilExpiry = Math.ceil((expiry - now) / 86400000);
           expiring.push({
@@ -9189,10 +11685,13 @@ function getLowStockReportData() {
     const itemData = itemSheet.getDataRange().getValues();
 
     const minStockMap = {};
+    const itemNameMap = {};
     for (let i = 1; i < itemData.length; i++) {
       const code = String(itemData[i][CONFIG.ITEM_COLS.ITEM_CODE] || '').trim().toUpperCase();
       const minStock = Number(itemData[i][CONFIG.ITEM_COLS.MIN_STOCK_LEVEL]) || 0;
+      const itemName = String(itemData[i][CONFIG.ITEM_COLS.ITEM_NAME] || '').trim();
       minStockMap[code] = minStock;
+      itemNameMap[code] = itemName;
     }
 
     const stockByItem = {};
@@ -9223,6 +11722,7 @@ function getLowStockReportData() {
 
         lowStock.push({
           itemCode: itemCode,
+          itemName: itemNameMap[itemCode] || '',
           currentStock: currentStock,
           minStock: minStock,
           deficit: deficit,
@@ -9233,6 +11733,205 @@ function getLowStockReportData() {
     });
 
     return { lowStock: lowStock };
+  });
+}
+
+function _getMovementReportWindow(referenceDate, period, customStart, customEnd) {
+  if (period === 'CUSTOM' && customStart && customEnd) {
+    const start = new Date(customStart);
+    const end = new Date(customEnd);
+    start.setHours(0, 0, 0, 0);
+    end.setHours(23, 59, 59, 999);
+
+    // Cap at 6 months
+    const diffMs = end.getTime() - start.getTime();
+    const sixMonthsMs = 183 * 24 * 60 * 60 * 1000;
+    if (diffMs > sixMonthsMs) {
+      throw new Error('Date range cannot exceed 6 months.');
+    }
+    return { period: 'CUSTOM', start: start, end: end };
+  }
+
+  const ref = referenceDate ? new Date(referenceDate) : new Date();
+  const safeRef = (ref instanceof Date && !isNaN(ref.getTime())) ? ref : new Date();
+  const start = new Date(safeRef);
+  const end = new Date(safeRef);
+  const mode = String(period || 'DAILY').trim().toUpperCase();
+
+  start.setHours(0, 0, 0, 0);
+  end.setHours(23, 59, 59, 999);
+
+  if (mode === 'MONTHLY') {
+    start.setDate(1);
+    end.setMonth(start.getMonth() + 1, 0);
+    end.setHours(23, 59, 59, 999);
+    return { period: 'MONTHLY', start: start, end: end };
+  }
+
+  if (mode === 'WEEKLY') {
+    const day = start.getDay();
+    const diffToMonday = (day + 6) % 7;
+    start.setDate(start.getDate() - diffToMonday);
+    end.setTime(start.getTime());
+    end.setDate(start.getDate() + 6);
+    end.setHours(23, 59, 59, 999);
+    return { period: 'WEEKLY', start: start, end: end };
+  }
+
+  return { period: 'DAILY', start: start, end: end };
+}
+
+function _getMaterialMovementFlow(movementType) {
+  const type = String(movementType || '').trim().toUpperCase();
+  if (type === CONFIG.MOVEMENT_TYPES.INWARD || type === CONFIG.MOVEMENT_TYPES.RETURN_PROD) return 'INWARD';
+  if (type === CONFIG.MOVEMENT_TYPES.DISPATCH || type === CONFIG.MOVEMENT_TYPES.CONSUMPTION || type === CONFIG.MOVEMENT_TYPES.INWARD_REVERSAL) return 'OUTWARD';
+  if (type === CONFIG.MOVEMENT_TYPES.TRANSFER || type === CONFIG.MOVEMENT_TYPES.TRANSFER_QUARANTINE) return 'TRANSFER';
+  return '';
+}
+
+function getMaterialMovementReportData(filters) {
+  return protect(function () {
+    const opts = filters || {};
+    const requestedFlow = String(opts.flow || 'ALL').trim().toUpperCase();
+    const windowInfo = _getMovementReportWindow(opts.referenceDate, opts.period, opts.startDate, opts.endDate);
+    const start = windowInfo.start;
+    const end = windowInfo.end;
+    const tz = Session.getScriptTimeZone();
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = _getSheetOrThrow(ss, CONFIG.SHEETS.MOVEMENT);
+    const data = _getSheetValuesCached(sheet.getName());
+    const itemMaps = _getItemMasterMaps();
+    const binMeta = _buildBinMetaMap(ss);
+    const currentStockNow = (function () {
+      const exact = {};
+      const byBin = {};
+      const byItem = {};
+      const invSheet = _getSheetOrThrow(ss, CONFIG.SHEETS.INVENTORY);
+      const invRows = _getSheetValuesCached(invSheet.getName());
+      for (let r = 1; r < invRows.length; r++) {
+        const inv = invRows[r];
+        const qty = Number(inv[CONFIG.INVENTORY_COLS.TOTAL_QUANTITY]) || 0;
+        if (qty <= 0) continue;
+        const qa = _normalizeQaStatus(inv[CONFIG.INVENTORY_COLS.QUALITY_STATUS] || 'PENDING');
+        if (qa !== 'APPROVED' && qa !== 'OVERRIDDEN') continue;
+        const invItemId = String(inv[CONFIG.INVENTORY_COLS.ITEM_ID] || '').trim().toUpperCase();
+        const code = String(inv[CONFIG.INVENTORY_COLS.ITEM_CODE_CACHE] || itemMaps.idToCode[invItemId] || '').trim().toUpperCase();
+        const batch = String(inv[CONFIG.INVENTORY_COLS.BATCH_ID] || '').trim().toUpperCase();
+        const bin = String(inv[CONFIG.INVENTORY_COLS.BIN_ID] || '').trim().toUpperCase();
+        if (!code) continue;
+        const exactKey = [code, batch, bin].join('|');
+        const binKey = [code, bin].join('|');
+        exact[exactKey] = (exact[exactKey] || 0) + qty;
+        byBin[binKey] = (byBin[binKey] || 0) + qty;
+        byItem[code] = (byItem[code] || 0) + qty;
+      }
+      return { exact: exact, byBin: byBin, byItem: byItem };
+    })();
+    const rows = [];
+    let totalQty = 0;
+    let totalToProduction = 0;
+    const itemSet = {};
+    const flowCounts = { INWARD: 0, OUTWARD: 0, TRANSFER: 0 };
+
+    for (let i = 1; i < data.length; i++) {
+      const row = data[i];
+      const tsRaw = row[CONFIG.MOVEMENT_COLS.TIMESTAMP];
+      const ts = tsRaw instanceof Date ? tsRaw : new Date(tsRaw);
+      if (!(ts instanceof Date) || isNaN(ts.getTime())) continue;
+      if (ts < start || ts > end) continue;
+
+      const movementType = String(row[CONFIG.MOVEMENT_COLS.MOVEMENT_TYPE] || '').trim().toUpperCase();
+      const flow = _getMaterialMovementFlow(movementType);
+      if (!flow) continue;
+      if (requestedFlow !== 'ALL' && requestedFlow !== flow) continue;
+
+      const itemId = String(row[CONFIG.MOVEMENT_COLS.ITEM_ID] || '').trim();
+      const itemCodeResolved = _getCanonicalItemCode(itemMaps.idToCode[itemId.toUpperCase()] || itemId, itemId);
+      const itemCode = String(itemCodeResolved || '').trim();
+      const codeNorm = itemCode.toUpperCase();
+      const itemName = String(itemMaps.codeToName[codeNorm] || itemCode || itemId);
+      const batchId = String(row[CONFIG.MOVEMENT_COLS.BATCH_ID] || '').trim();
+      const batchNumber = _getBatchDisplayNumber(itemCode, batchId);
+      const qty = Number(row[CONFIG.MOVEMENT_COLS.QUANTITY]) || 0;
+      const uom = String(row[CONFIG.MOVEMENT_COLS.UOM] || itemMaps.codeToUom[codeNorm] || 'KG').trim() || 'KG';
+      const prodOrderRef = String(row[CONFIG.MOVEMENT_COLS.PROD_ORDER_REF] || '').trim();
+      const fromBinId = String(row[CONFIG.MOVEMENT_COLS.FROM_BIN_ID] || '').trim();
+      const toBinId = String(row[CONFIG.MOVEMENT_COLS.TO_BIN_ID] || '').trim();
+      const fromMeta = binMeta[fromBinId] || {};
+      const toMeta = binMeta[toBinId] || {};
+      const primaryMeta = flow === 'OUTWARD' ? fromMeta : toMeta;
+      const primaryBinId = flow === 'OUTWARD' ? fromBinId : toBinId;
+      const toProductionQty = movementType === CONFIG.MOVEMENT_TYPES.CONSUMPTION ? qty : 0;
+      const stockCode = codeNorm;
+      const stockBatch = batchId.toUpperCase();
+      const stockBin = String(primaryBinId || '').trim().toUpperCase();
+      const exactStockKey = [stockCode, stockBatch, stockBin].join('|');
+      const binStockKey = [stockCode, stockBin].join('|');
+      const currentStockInBinNow = stockBin
+        ? (currentStockNow.exact[exactStockKey] != null ? currentStockNow.exact[exactStockKey] : (currentStockNow.byBin[binStockKey] || 0))
+        : (currentStockNow.byItem[stockCode] || 0);
+      const currentItemStockNow = currentStockNow.byItem[stockCode] || 0;
+
+      rows.push({
+        timestamp: ts.toISOString(),
+        dateLabel: Utilities.formatDate(ts, tz, 'dd-MMM-yyyy HH:mm'),
+        flow: flow,
+        movementType: movementType,
+        itemCode: itemCode,
+        itemName: itemName,
+        batchId: batchId,
+        batchNumber: batchNumber,
+        quantity: qty,
+        currentStockNow: currentStockInBinNow,
+        currentItemStockNow: currentItemStockNow,
+        uom: uom,
+        site: String(primaryMeta.site || ''),
+        location: String(primaryMeta.location || ''),
+        binId: String(primaryBinId || ''),
+        binCode: String(primaryMeta.binCode || primaryBinId || ''),
+        fromSite: String(fromMeta.site || ''),
+        fromLocation: String(fromMeta.location || ''),
+        fromBinId: fromBinId,
+        fromBinCode: String(fromMeta.binCode || fromBinId || ''),
+        toSite: String(toMeta.site || ''),
+        toLocation: String(toMeta.location || ''),
+        toBinId: toBinId,
+        toBinCode: String(toMeta.binCode || toBinId || ''),
+        prodOrderRef: prodOrderRef,
+        ginNo: String(row[CONFIG.MOVEMENT_COLS.GIN_NO] || '').trim(),
+        qualityStatus: String(row[CONFIG.MOVEMENT_COLS.QUALITY_STATUS] || '').trim(),
+        toProductionQty: toProductionQty,
+        remarks: String(row[CONFIG.MOVEMENT_COLS.REMARKS] || '').trim()
+      });
+
+      totalQty += qty;
+      totalToProduction += toProductionQty;
+      if (itemCode) itemSet[codeNorm] = true;
+      flowCounts[flow] = (flowCounts[flow] || 0) + 1;
+    }
+
+    rows.sort(function (a, b) {
+      return String(b.timestamp || '').localeCompare(String(a.timestamp || ''));
+    });
+
+    return {
+      filters: {
+        flow: requestedFlow,
+        period: windowInfo.period,
+        startDate: Utilities.formatDate(start, tz, 'yyyy-MM-dd'),
+        endDate: Utilities.formatDate(end, tz, 'yyyy-MM-dd')
+      },
+      summary: {
+        totalRows: rows.length,
+        totalQty: totalQty,
+        totalToProduction: totalToProduction,
+        uniqueItems: Object.keys(itemSet).length,
+        inwardCount: flowCounts.INWARD || 0,
+        outwardCount: flowCounts.OUTWARD || 0,
+        transferCount: flowCounts.TRANSFER || 0
+      },
+      rows: rows
+    };
   });
 }
 
@@ -9540,6 +12239,18 @@ function bulkUploadBatches(ss, rows, columnMap) {
   };
 }
 
+/**  Run checkBulkDupes() in editor to see how many batches are already in Batch_Master */
+
+function checkBulkDupes() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const bm = ss.getSheetByName('Batch_Master').getDataRange().getValues();
+  const existing = new Set(bm.slice(1).map(r => r[1] + '|' + r[2]));  // itemCode|batchNumber
+  const tpl = ss.getSheetByName('Bulk_Upload_Template').getDataRange().getValues();
+  const dupes = tpl.slice(1).filter(r => existing.has(r[0] + '|' + r[1]));
+  Logger.log('Dupes: ' + dupes.length + ' / ' + (tpl.length - 1));
+  return dupes.map(r => r[0] + '|' + r[1]);
+}
+
 /**
  * BULK UPLOAD INVENTORY FROM SHEET
  * 
@@ -9551,6 +12262,159 @@ function bulkUploadBatches(ss, rows, columnMap) {
  * 3. Run this function (or click button)
  * 4. Validates all rows, creates inventory entries
  */
+
+function processBulkUploadFast() {
+  return withScriptLock(function () {
+    protect(() => requireRole(SECURITY.ROLES.MANAGER));
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const templateSheet = ss.getSheetByName('Bulk_Upload_Template');
+    if (!templateSheet) throw new Error('Bulk_Upload_Template sheet not found');
+
+    const data = templateSheet.getDataRange().getValues();
+    if (data.length < 2) throw new Error('No data in template');
+
+    // ── Build lookup maps ONCE (O(n) not O(n²)) ──────────────────────────
+    const itemSheet = _getSheetOrThrow(ss, CONFIG.SHEETS.ITEM);
+    const itemData = _getSheetValuesCached(itemSheet.getName());
+    const itemCols = _getItemSheetColumnMap(itemSheet);
+    const itemIdByCode = {};   // 'PM1779' → '15073'
+    for (let i = 1; i < itemData.length; i++) {
+      const code = String(itemData[i][itemCols.ITEM_CODE] || '').trim().toUpperCase();
+      const id = String(itemData[i][itemCols.ITEM_ID] || '').trim();
+      if (code && id) itemIdByCode[code] = id;
+    }
+
+    const binSheet = _getSheetOrThrow(ss, CONFIG.SHEETS.BIN);
+    const binData = _getSheetValuesCached(binSheet.getName());
+    const binHeaders = _getSheetHeaderMap(binSheet);
+    const binMetaRows = _buildBinMasterMetaMap(binSheet, binData, binHeaders);
+    const binMetaMap = {};
+    Object.keys(binMetaRows).forEach(function (bid) {
+      const meta = binMetaRows[bid] || {};
+      binMetaMap[bid] = {
+        site: String(meta.site || '').trim(),
+        location: String(meta.location || '').trim(),
+        capacity: Number(meta.capacity || 0),
+        capacityUom: _normalizeCapacityUom(meta.declaredCapacityUom || meta.capacityUom || 'KG')
+      };
+    });
+
+    // ── Parse header ─────────────────────────────────────────────────────
+    const hdr = {};
+    data[0].forEach((h, i) => { hdr[String(h || '').trim().toLowerCase().replace(/ /g, '_')] = i; });
+    const required = ['item_code', 'batch_id', 'bin_id', 'quantity', 'uom'];
+    const missing = required.filter(c => hdr[c] === undefined);
+    if (missing.length) throw new Error('Missing columns: ' + missing.join(', '));
+
+    const errors = [], validRows = [];
+    const now = new Date();
+    const binDelta = {};   // track capacity delta within this batch
+
+    for (let i = 1; i < data.length; i++) {
+      const row = data[i];
+      const itemCode = String(row[hdr['item_code']] || '').trim().toUpperCase();
+      if (!itemCode) continue;   // skip blank rows
+
+      const rn = i + 1;
+      const batchId = String(row[hdr['batch_id']] || '').trim();
+      const binId = String(row[hdr['bin_id']] || '').trim();
+      const qty = Number(row[hdr['quantity']]) || 0;
+      const uom = String(row[hdr['uom']] || 'NOS').trim().toUpperCase();
+      const qa = String(row[hdr['quality_status']] || 'PENDING').trim().toUpperCase();
+      const ginNo = String(row[hdr['gin_no']] || 'BULK-' + now.getTime()).trim();
+      const version = String(row[hdr['version']] || 'V1').trim().toUpperCase();
+
+      if (!batchId) { errors.push('Row ' + rn + ': Batch ID required'); continue; }
+      if (!binId) { errors.push('Row ' + rn + ': Bin ID required'); continue; }
+      if (qty <= 0) { continue; }   // skip zero-qty rows silently (nothing to store)
+
+      // O(1) lookup
+      const itemId = itemIdByCode[itemCode];
+      if (!itemId) { errors.push('Row ' + rn + ': Item ' + itemCode + ' not in Item_Master'); continue; }
+
+      const binInfo = binMetaMap[binId];
+      if (!binInfo) { errors.push('Row ' + rn + ': Bin ' + binId + ' not in Bin_Master'); continue; }
+
+      const validQA = { PENDING: 1, APPROVED: 1, HOLD: 1, REJECTED: 1 };
+      if (!validQA[qa]) { errors.push('Row ' + rn + ': Invalid QA: ' + qa); continue; }
+
+      // Capacity check (only if bin has a real capacity limit)
+      const qtyKg = _convertToKg(itemCode, qty, uom);
+      try {
+        _assertBinCapacity(binId, qty, binDelta, itemCode, uom);
+      } catch (e) {
+        errors.push('Row ' + rn + ': ' + e.message);
+        continue;
+      }
+
+      validRows.push({
+        itemId, itemCode, batchId, binId,
+        qty: qtyKg, site: binInfo.site, location: binInfo.location,
+        uom, qa, ginNo, version,
+        lotNo: String(row[hdr['lot_no']] || '').trim(),
+        expiryDate: row[hdr['expiry_date']] instanceof Date ? row[hdr['expiry_date']] : '',
+        remarks: String(row[hdr['remarks']] || '').trim()
+      });
+    }
+
+    if (errors.length > 0 && validRows.length === 0)
+      throw new Error(errors.length + ' validation errors:\n' + errors.slice(0, 20).join('\n'));
+
+    // ── Write inventory rows ──────────────────────────────────────────────
+    const invSheet = _getSheetOrThrow(ss, CONFIG.SHEETS.INVENTORY);
+    const moveLogs = [];
+
+    validRows.forEach(function (item) {
+      const invId = 'INV-' + now.getTime() + '-' + Math.floor(Math.random() * 9999);
+      const newRow = [];
+      newRow[CONFIG.INVENTORY_COLS.INVENTORY_ID] = invId;
+      newRow[CONFIG.INVENTORY_COLS.ITEM_ID] = item.itemId;
+      newRow[CONFIG.INVENTORY_COLS.ITEM_CODE_CACHE] = item.itemCode;
+      newRow[CONFIG.INVENTORY_COLS.BATCH_ID] = item.batchId;
+      newRow[CONFIG.INVENTORY_COLS.GIN_NO] = item.ginNo;
+      newRow[CONFIG.INVENTORY_COLS.VERSION] = item.version;
+      newRow[CONFIG.INVENTORY_COLS.QUALITY_STATUS] = item.qa;
+      newRow[CONFIG.INVENTORY_COLS.QUALITY_DATE] = item.qa === 'APPROVED' ? now : '';
+      newRow[CONFIG.INVENTORY_COLS.BIN_ID] = item.binId;
+      newRow[CONFIG.INVENTORY_COLS.SITE] = item.site;
+      newRow[CONFIG.INVENTORY_COLS.LOCATION] = item.location;
+      newRow[CONFIG.INVENTORY_COLS.TOTAL_QUANTITY] = item.qty;
+      newRow[CONFIG.INVENTORY_COLS.UOM] = item.uom;
+      newRow[CONFIG.INVENTORY_COLS.LOT_NO] = item.lotNo;
+      newRow[CONFIG.INVENTORY_COLS.EXPIRY_DATE] = item.expiryDate;
+      newRow[CONFIG.INVENTORY_COLS.LAST_UPDATED] = now;
+      newRow[CONFIG.INVENTORY_COLS.INWARD_DATE] = now;
+      newRow[CONFIG.INVENTORY_COLS.LAST_TRANSFER_DATE] = '';
+      invSheet.appendRow(newRow);
+
+      moveLogs.push({
+        type: CONFIG.MOVEMENT_TYPES.INWARD,
+        itemId: item.itemId, batchId: item.batchId,
+        version: item.version, ginNo: item.ginNo,
+        toBinId: item.binId, quantity: item.qty,
+        qualityStatus: item.qa, remarks: 'BULK_UPLOAD: ' + (item.remarks || '')
+      });
+    });
+
+    if (moveLogs.length > 0) {
+      try { _appendMovementLogsBatch(moveLogs); } catch (e) {
+        Logger.log('[BULK] Movement log failed: ' + e.message);
+      }
+    }
+
+    // Clear template after success
+    if (validRows.length > 0 && data.length > 1)
+      templateSheet.getRange(2, 1, data.length - 1, data[0].length).clearContent();
+
+    Logger.log('[BULK_UPLOAD] Processed: ' + validRows.length
+      + (errors.length ? ' | Skipped: ' + errors.length : ''));
+
+    return {
+      success: true, processed: validRows.length,
+      skipped: errors.length, errors: errors.slice(0, 50)
+    };
+  });
+}
 
 function processBulkUpload() {
   return withScriptLock(function () {
@@ -9655,9 +12519,9 @@ function processBulkUpload() {
       const qtyKg = _convertToKg(itemCode, qty, uom);
 
       try {
-        _assertBinCapacity(binId, qtyKg);
+        _assertBinCapacity(binId, qty, null, itemCode, uom);
       } catch (e) {
-        errors.push('Row ' + rowNum + ': Bin capacity exceeded');
+        errors.push('Row ' + rowNum + ': ' + e.message);
         continue;
       }
 
@@ -9783,4 +12647,88 @@ function processBulkUpload() {
       message: 'Loaded ' + created + ' inventory entries'
     };
   });
+}
+
+
+// Paste this into Apps Script editor and run it once.
+// It re-runs ONLY the validation (no writes) and logs every failed row.
+function diagnoseFailedBulkRows() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var templateSheet = ss.getSheetByName('Bulk_Upload_Template');
+  if (!templateSheet) { Logger.log('No template sheet'); return; }
+
+  var data = templateSheet.getDataRange().getValues();
+  if (data.length < 2) { Logger.log('No data'); return; }
+
+  // Build item lookup
+  var itemSheet = ss.getSheetByName('Item_Master');
+  var itemData = itemSheet.getDataRange().getValues();
+  var itemIdByCode = {};
+  for (var m = 1; m < itemData.length; m++) {
+    var c = String(itemData[m][1] || '').trim().toUpperCase(); // col B = item_code
+    var d = String(itemData[m][0] || '').trim();               // col A = item_id
+    if (c && d) itemIdByCode[c] = d;
+  }
+
+  // Build bin lookup
+  var binSheet = ss.getSheetByName('Bin_Master');
+  var binData = binSheet.getDataRange().getValues();
+  var binSet = {};
+  for (var b = 1; b < binData.length; b++) {
+    var bid = String(binData[b][0] || '').trim();
+    if (bid) binSet[bid] = true;
+  }
+
+  // Parse header
+  var hdr = {};
+  data[0].forEach(function (h, i) {
+    hdr[String(h || '').trim().toLowerCase().replace(/ /g, '_')] = i;
+  });
+
+  var VALID_QA = { PENDING: 1, APPROVED: 1, HOLD: 1, REJECTED: 1 };
+  var errors = [];
+  var passed = 0;
+  var skipped = 0;
+
+  for (var i = 1; i < data.length; i++) {
+    var row = data[i];
+    var rn = i + 1;
+    var itemCode = String(row[hdr['item_code']] || '').trim().toUpperCase();
+    if (!itemCode) { skipped++; continue; }
+
+    var batchId = String(row[hdr['batch_id']] || '').trim();
+    var binId = String(row[hdr['bin_id']] || '').trim();
+    var qty = Number(row[hdr['quantity']]) || 0;
+    var uom = String(row[hdr['uom']] || '').trim().toUpperCase();
+    var qa = String(row[hdr['quality_status']] || 'PENDING').trim().toUpperCase();
+
+    var reason = '';
+    if (!batchId) reason = 'Batch ID missing';
+    else if (!binId) reason = 'Bin ID missing';
+    else if (qty <= 0) reason = 'Qty = ' + qty + ' (zero/negative)';
+    else if (!itemIdByCode[itemCode]) reason = 'Item ' + itemCode + ' not in Item_Master';
+    else if (!VALID_QA[qa]) reason = 'Invalid QA: ' + qa;
+    else if (binId !== 'NULL' && !binSet[binId]) reason = 'Bin "' + binId + '" not in Bin_Master';
+
+    if (reason) {
+      errors.push('Row ' + rn + ' | ' + itemCode + ' | Batch: ' + batchId + ' | ' + reason);
+    } else {
+      passed++;
+    }
+  }
+
+  Logger.log('PASSED: ' + passed + ' | FAILED: ' + errors.length + ' | BLANK SKIPPED: ' + skipped);
+  Logger.log('--- FAILED ROWS ---');
+  errors.forEach(function (e) { Logger.log(e); });
+
+  // Also write failures to a new sheet so you can see them in the spreadsheet
+  var failSheet = ss.getSheetByName('Bulk_Upload_Failures');
+  if (!failSheet) failSheet = ss.insertSheet('Bulk_Upload_Failures');
+  failSheet.clearContents();
+  failSheet.getRange(1, 1).setValue('Row | ItemCode | Batch | Reason');
+  if (errors.length > 0) {
+    var rows = errors.map(function (e) { return [e]; });
+    failSheet.getRange(2, 1, rows.length, 1).setValues(rows);
+  }
+  Logger.log('Results written to "Bulk_Upload_Failures" sheet');
 }

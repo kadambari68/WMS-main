@@ -237,7 +237,7 @@
                 <div class="form-card-icon icon-production">
                     <i class="fas fa-industry"></i>
                 </div>
-                <div class="form-card-title">Production Request</div>
+                <div class="form-card-title">Production</div>
                 <div class="form-card-desc">Create work order</div>
             </div>
         </div>
@@ -257,8 +257,8 @@
                 <div class="form-card-icon icon-production">
                     <i class="fas fa-tasks"></i>
                 </div>
-                <div class="form-card-title">PO Approval</div>
-                <div class="form-card-desc">Approve work orders</div>
+                <div class="form-card-title">Production Orders</div>
+                <div class="form-card-desc">View PO item and quantity summary</div>
             </div>
 
             <div class="form-card" onclick="nav('warehouse')">
@@ -277,11 +277,28 @@
                 <div class="form-card-desc">Item-level stock view</div>
             </div>
 
+            <div class="form-card" onclick="nav('packing_dashboard')">
+                <div class="form-card-icon icon-production">
+                    <i class="fas fa-box-open"></i>
+                </div>
+                <div class="form-card-title">Packing Lifecycle</div>
+                <div class="form-card-desc">Manage packaging versions</div>
+            </div>
+
+            <div class="form-card" onclick="nav('bulk_upload')">
+                <div class="form-card-icon icon-inward">
+                    <i class="fas fa-upload"></i>
+                </div>
+                <div class="form-card-title">Bulk Upload</div>
+                <div class="form-card-desc">Upload items and batches</div>
+            </div>
+
             <div class="form-card" onclick="nav('reports')">
                 <div class="form-card-icon icon-dispatch">
               <i class="fas fa-chart-bar"></i>
             </div>
             <div class="form-card-title">Reports</div>
+            <div class="form-card-desc">Stock alerts & reports</div>
             </div>
         </div>
 
@@ -318,18 +335,8 @@
             document.getElementById('estValue').textContent = '₹' + (data.estValue || 0).toLocaleString();
         }
 
-        google.script.run
-            .withSuccessHandler(function (data) {
-                const totalAlerts = (data.summary.critical || 0) + (data.summary.warning || 0);
-                if (totalAlerts > 0) {
-                    document.getElementById('alertBadge').textContent = totalAlerts;
-                    document.getElementById('alertBadge').style.display = 'inline-block';
-                }
-            })
-            .withFailureHandler(function (err) {
-                console.error('Failed to load alerts summary:', err);
-            })
-            .getSystemAlerts();
+        // NOTE: getSystemAlerts() is not yet implemented in Code.js.
+        // When ready, add the backend function and an alertBadge element to re-enable this feature.
     </script>
 </body>
 

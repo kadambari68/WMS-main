@@ -1,5 +1,6 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
+
 <head>
   <base target="_top">
   <meta charset="UTF-8">
@@ -9,7 +10,9 @@
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
   <style>
-    :root { --primary: #4F46E5; }
+    :root {
+      --primary: #4F46E5;
+    }
 
     body {
       background-color: #F3F4F6;
@@ -22,7 +25,7 @@
       margin: 20px auto;
       border: none;
       border-radius: 16px;
-      box-shadow: 0 4px 6px rgba(0,0,0,0.06);
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.06);
       background: #fff;
       overflow: hidden;
     }
@@ -45,7 +48,9 @@
       gap: 10px;
     }
 
-    .card-body { padding: 24px; }
+    .card-body {
+      padding: 24px;
+    }
 
     .form-label {
       font-weight: 500;
@@ -54,16 +59,18 @@
       margin-bottom: 5px;
     }
 
-    .form-control, .form-select {
+    .form-control,
+    .form-select {
       border-radius: 8px;
       border: 1px solid #D1D5DB;
       padding: 9px 12px;
       font-size: 0.9rem;
     }
 
-    .form-control:focus, .form-select:focus {
+    .form-control:focus,
+    .form-select:focus {
       border-color: var(--primary);
-      box-shadow: 0 0 0 3px rgba(79,70,229,0.1);
+      box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
     }
 
     /* â”€â”€ Item row â”€â”€ */
@@ -97,7 +104,10 @@
       cursor: pointer;
       transition: color 0.15s;
     }
-    .remove-btn:hover { color: #EF4444; }
+
+    .remove-btn:hover {
+      color: #EF4444;
+    }
 
     /* â”€â”€ Qty info pill â”€â”€ */
     .stock-info {
@@ -106,10 +116,22 @@
       margin-top: 4px;
       min-height: 16px;
     }
-    .stock-info.ok    { color: #059669; }
-    .stock-info.warn  { color: #D97706; }
-    .stock-info.error { color: #DC2626; }
-    .batch-info { min-height: 16px; }
+
+    .stock-info.ok {
+      color: #059669;
+    }
+
+    .stock-info.warn {
+      color: #D97706;
+    }
+
+    .stock-info.error {
+      color: #DC2626;
+    }
+
+    .batch-info {
+      min-height: 16px;
+    }
 
     /* â”€â”€ Submit button â”€â”€ */
     .btn-submit {
@@ -122,8 +144,16 @@
       width: 100%;
       font-size: 1rem;
     }
-    .btn-submit:hover { background: #4338CA; color: #fff; }
-    .btn-submit:disabled { opacity: 0.6; cursor: not-allowed; }
+
+    .btn-submit:hover {
+      background: #4338CA;
+      color: #fff;
+    }
+
+    .btn-submit:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
 
     /* â”€â”€ Success banner â”€â”€ */
     .success-banner {
@@ -134,276 +164,294 @@
       padding: 16px 20px;
       margin-top: 16px;
     }
+
     .success-banner .po-ref {
       font-size: 1.1rem;
       font-weight: 700;
       color: #065F46;
       letter-spacing: 0.5px;
     }
-    .success-banner p { margin: 0; color: #374151; font-size: 0.9rem; }
+
+    .success-banner p {
+      margin: 0;
+      color: #374151;
+      font-size: 0.9rem;
+    }
   </style>
 </head>
 
 <body>
-<div class="container">
-  <div class="main-card">
+  <div class="container">
+    <div class="main-card">
 
-    <div class="card-header">
-      <div class="header-title">
-        <i class="fa-solid fa-industry text-primary"></i>
-        Production Request
+      <div class="card-header">
+        <div class="header-title">
+          <i class="fa-solid fa-industry text-primary"></i>
+          Production Request
+        </div>
+        <button class="btn btn-sm btn-outline-secondary" onclick="goBack()">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
       </div>
-      <button class="btn btn-sm btn-outline-secondary" onclick="goBack()">
+
+      <div class="card-body">
+        <form id="reqForm" onsubmit="handleSubmit(event)">
+
+          <div class="mb-3">
+            <label class="form-label">Remarks (optional)</label>
+            <textarea class="form-control" id="remarks" rows="2" placeholder="e.g. For Batch Run 42, urgent"></textarea>
+          </div>
+
+          <h6 class="text-uppercase text-muted fw-bold small mb-3 mt-2">
+            Raw Materials Required
+          </h6>
+
+          <div id="itemsContainer"></div>
+
+          <button type="button" class="btn btn-outline-secondary w-100 mb-4" onclick="addItemRow()" id="addRowBtn">
+            <i class="fa-solid fa-plus me-2"></i>Add Material
+          </button>
+
+          <button type="submit" class="btn-submit" id="submitBtn">
+            Submit Production Request
+          </button>
+
+          <div id="loadingMsg" class="text-center mt-3 d-none">
+            <div class="spinner-border text-primary spinner-border-sm" role="status"></div>
+            <span class="ms-2 text-muted small">Submitting...</span>
+          </div>
+        </form>
+
+        <div class="success-banner" id="successBanner">
+          <div class="d-flex align-items-center gap-3 mb-2">
+            <i class="fa-solid fa-circle-check text-success fa-lg"></i>
+            <span class="po-ref" id="poRefDisplay"></span>
+          </div>
+          <p>Production Order created and marked ready for consumption.</p>
+          <p class="mt-1 text-muted" style="font-size:0.8rem;">Use this reference number on the Consumption form to
+            auto-load the requested items.</p>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Item row template -->
+  <template id="itemRowTemplate">
+    <div class="item-row">
+      <button type="button" class="remove-btn" onclick="removeRow(this)" title="Remove">
         <i class="fa-solid fa-xmark"></i>
       </button>
-    </div>
-
-    <div class="card-body">
-      <form id="reqForm" onsubmit="handleSubmit(event)">
-
-        <div class="mb-3">
-          <label class="form-label">Remarks (optional)</label>
-          <textarea class="form-control" id="remarks" rows="2" placeholder="e.g. For Batch Run 42, urgent"></textarea>
+      <div class="row-number"></div>
+      <div class="row g-2">
+        <div class="col-md-5">
+          <label class="form-label">Item Code</label>
+          <input type="text" class="form-control item-code-input" placeholder="e.g. RM-CURC-01" required
+            autocomplete="off">
+          <input type="text" class="form-control item-name mt-2" placeholder="Item Name" readonly tabindex="-1" style="background-color: #f8f9fa;">
+          <div class="stock-info mt-1"></div>
+          <div class="mt-2">
+            <label class="form-label mb-1">Batch (from inventory)</label>
+            <select class="form-select batch-select">
+              <option value="">Select batch...</option>
+            </select>
+            <div class="batch-info small text-muted mt-1"></div>
+          </div>
         </div>
-
-        <h6 class="text-uppercase text-muted fw-bold small mb-3 mt-2">
-          Raw Materials Required
-        </h6>
-
-        <div id="itemsContainer"></div>
-
-        <button type="button" class="btn btn-outline-secondary w-100 mb-4" onclick="addItemRow()" id="addRowBtn">
-          <i class="fa-solid fa-plus me-2"></i>Add Material
-        </button>
-
-        <button type="submit" class="btn-submit" id="submitBtn">
-          Submit Production Request
-        </button>
-
-        <div id="loadingMsg" class="text-center mt-3 d-none">
-          <div class="spinner-border text-primary spinner-border-sm" role="status"></div>
-            <span class="ms-2 text-muted small">Submitting...</span>
+        <div class="col-md-4">
+          <label class="form-label qty-label">Quantity</label>
+          <div class="input-group">
+            <input type="number" class="form-control qty-input" step="0.01" min="0.01" placeholder="Qty required"
+              required>
+            <select class="form-select uom-select" style="max-width:95px;">
+              <option value="KG">KG</option>
+            </select>
+          </div>
         </div>
-      </form>
-
-      <div class="success-banner" id="successBanner">
-        <div class="d-flex align-items-center gap-3 mb-2">
-          <i class="fa-solid fa-circle-check text-success fa-lg"></i>
-          <span class="po-ref" id="poRefDisplay"></span>
+        <div class="col-md-3">
+          <label class="form-label">Job Order (optional)</label>
+          <input type="text" class="form-control job-order-input" placeholder="Leave blank">
         </div>
-        <p>Production Order created. Your manager will approve it shortly.</p>
-        <p class="mt-1 text-muted" style="font-size:0.8rem;">Please use this reference number on the Consumption form after approval - all items auto-populate.</p>
       </div>
     </div>
+  </template>
 
-  </div>
-</div>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+  <script>
+    let rowCount = 0;
+    let navInProgress = false;
+    // Lightweight stock check cache (per session, not persisted)
+    const stockCache = {};
 
-<!-- Item row template -->
-<template id="itemRowTemplate">
-  <div class="item-row">
-    <button type="button" class="remove-btn" onclick="removeRow(this)" title="Remove">
-      <i class="fa-solid fa-xmark"></i>
-    </button>
-    <div class="row-number"></div>
-    <div class="row g-2">
-      <div class="col-md-5">
-        <label class="form-label">Item Code</label>
-        <input type="text" class="form-control item-code-input" placeholder="e.g. RM-CURC-01" required autocomplete="off">
-        <div class="stock-info"></div>
-        <div class="mt-2">
-          <label class="form-label mb-1">Batch (from inventory)</label>
-          <select class="form-select batch-select">
-            <option value="">Select batch...</option>
-          </select>
-          <div class="batch-info small text-muted mt-1"></div>
-        </div>
-      </div>
-      <div class="col-md-4">
-        <label class="form-label qty-label">Quantity</label>
-        <div class="input-group">
-          <input type="number" class="form-control qty-input" step="0.01" min="0.01" placeholder="Qty required" required>
-          <select class="form-select uom-select" style="max-width:95px;">
-            <option value="KG">KG</option>
-          </select>
-        </div>
-      </div>
-      <div class="col-md-3">
-        <label class="form-label">Job Order (optional)</label>
-        <input type="text" class="form-control job-order-input" placeholder="Leave blank">
-      </div>
-    </div>
-  </div>
-</template>
+    document.addEventListener('DOMContentLoaded', function () {
+      addItemRow(); // Start with one row
+    });
 
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-<script>
-  let rowCount = 0;
-  let navInProgress = false;
-  // Lightweight stock check cache (per session, not persisted)
-  const stockCache = {};
+    // â”€â”€ Row management â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-  document.addEventListener('DOMContentLoaded', function () {
-    addItemRow(); // Start with one row
-  });
+    function addItemRow() {
+      rowCount++;
+      const tpl = document.getElementById('itemRowTemplate');
+      const clone = tpl.content.cloneNode(true);
+      const cont = document.getElementById('itemsContainer');
+      cont.appendChild(clone);
 
-  // â”€â”€ Row management â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+      const rows = cont.querySelectorAll('.item-row');
+      const row = rows[rows.length - 1];
 
-  function addItemRow() {
-    rowCount++;
-    const tpl   = document.getElementById('itemRowTemplate');
-    const clone = tpl.content.cloneNode(true);
-    const cont  = document.getElementById('itemsContainer');
-    cont.appendChild(clone);
+      // Label row number
+      row.querySelector('.row-number').textContent = 'Material ' + rowCount;
 
-    const rows  = cont.querySelectorAll('.item-row');
-    const row   = rows[rows.length - 1];
-
-    // Label row number
-    row.querySelector('.row-number').textContent = 'Material ' + rowCount;
-
-    // Wire item code blur â†’ stock check
-    const itemInput = row.querySelector('.item-code-input');
-    const uomSelect = row.querySelector('.uom-select');
-    const qtyInput  = row.querySelector('.qty-input');
-    const batchSelect = row.querySelector('.batch-select');
-    let stockTimer = null;
-    itemInput.addEventListener('input', function () {
-      clearTimeout(stockTimer);
-      stockTimer = setTimeout(function () {
+      // Wire item code blur â†’ stock check
+      const itemInput = row.querySelector('.item-code-input');
+      const uomSelect = row.querySelector('.uom-select');
+      const qtyInput = row.querySelector('.qty-input');
+      const batchSelect = row.querySelector('.batch-select');
+      let stockTimer = null;
+      itemInput.addEventListener('input', function () {
+        clearTimeout(stockTimer);
+        stockTimer = setTimeout(function () {
+          checkStock(row);
+          lookupUomForRow(row);
+          loadBatchOptionsForRow(row);
+          syncProdItemName(row);
+        }, 500);
+      });
+      itemInput.addEventListener('blur', function () {
+        clearTimeout(stockTimer);
         checkStock(row);
         lookupUomForRow(row);
         loadBatchOptionsForRow(row);
-      }, 500);
-    });
-    itemInput.addEventListener('blur', function () {
-      clearTimeout(stockTimer);
-      checkStock(row);
-      lookupUomForRow(row);
-      loadBatchOptionsForRow(row);
-    });
-    if (uomSelect) {
-      uomSelect.addEventListener('change', function () {
-        applyQtyUomForReqRow(row, String(this.value || 'KG').trim() || 'KG');
-        checkStock(row);
-        applySelectedBatchHint(row);
+        syncProdItemName(row);
       });
-    }
-    if (qtyInput) {
-      qtyInput.addEventListener('input', function () {
-        applySelectedBatchHint(row);
-      });
-    }
-    if (batchSelect) {
-      batchSelect.addEventListener('change', function () {
-        applySelectedBatchHint(row);
-      });
-    }
-
-    // Prevent duplicates if more than 1 row
-    updateRemoveButtons();
-  }
-
-  function removeRow(btn) {
-    const row = btn.closest('.item-row');
-    if (!row) return;
-    row.remove();
-    // Renumber remaining rows
-    const rows = document.querySelectorAll('#itemsContainer .item-row');
-    rows.forEach(function(r, idx) {
-      const label = r.querySelector('.row-number');
-      if (label) label.textContent = 'Material ' + (idx + 1);
-    });
-    updateRemoveButtons();
-  }
-
-  function updateRemoveButtons() {
-    const rows = document.querySelectorAll('#itemsContainer .item-row');
-    rows.forEach(function(row) {
-      const btn = row.querySelector('.remove-btn');
-      if (btn) btn.style.display = rows.length > 1 ? 'block' : 'none';
-    });
-  }
-
-  // â”€â”€ Stock check (advisory, not blocking) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-
-  function checkStock(row) {
-    const itemCode = row.querySelector('.item-code-input').value.trim();
-    const infoEl   = row.querySelector('.stock-info');
-    const qtyInput = row.querySelector('.qty-input');
-    const uom      = String((qtyInput && qtyInput.dataset.baseUom) || (qtyInput && qtyInput.dataset.uom) || 'KG');
-
-    if (!itemCode) {
-      infoEl.textContent = '';
-      infoEl.className   = 'stock-info';
-      return;
-    }
-
-    infoEl.textContent = 'Checking stock...';
-    infoEl.className   = 'stock-info';
-
-    google.script.run
-      .withSuccessHandler(function (summary) {
-        if (!summary) {
-          infoEl.textContent = 'Item not found in master';
-          infoEl.className   = 'stock-info warn';
-          return;
-        }
-        const approved = Number(summary.approved || 0);
-        const pending  = Number(summary.pending  || 0);
-
-        if (approved > 0) {
-          infoEl.textContent = 'Available: ' + approved.toFixed(2) + ' ' + uom + ' approved' +
-            (pending > 0 ? ' (' + pending.toFixed(2) + ' ' + uom + ' pending QA)' : '');
-          infoEl.className = 'stock-info ok';
-        } else if (pending > 0) {
-          infoEl.textContent = 'Available: ' + pending.toFixed(2) + ' ' + uom + ' pending QA';
-          infoEl.className   = 'stock-info warn';
-        } else {
-          infoEl.textContent = 'No stock found for this item code';
-          infoEl.className   = 'stock-info error';
-        }
-      })
-      .withFailureHandler(function () {
-        infoEl.textContent = '';
-        infoEl.className   = 'stock-info';
-      })
-      .getItemStockSummary(itemCode);
-  }
-
-  function lookupUomForRow(row) {
-    const itemCode = String(row.querySelector('.item-code-input').value || '').trim();
-    const qtyLabel = row.querySelector('.qty-label');
-    const qtyInput = row.querySelector('.qty-input');
-    const uomSelect = row.querySelector('.uom-select');
-
-    if (!itemCode) {
-      setReqUomOptions(uomSelect, ['KG'], 'KG');
-      applyQtyUomForReqRow(row, 'KG');
-      if (qtyLabel) qtyLabel.textContent = 'Quantity';
-      if (qtyInput) {
-        qtyInput.placeholder = 'Qty required';
-        qtyInput.dataset.baseUom = 'KG';
+      if (uomSelect) {
+        uomSelect.addEventListener('change', function () {
+          applyQtyUomForReqRow(row, String(this.value || 'KG').trim() || 'KG');
+          checkStock(row);
+          applySelectedBatchHint(row);
+        });
       }
-      return;
+      if (qtyInput) {
+        qtyInput.addEventListener('input', function () {
+          applySelectedBatchHint(row);
+        });
+      }
+      if (batchSelect) {
+        batchSelect.addEventListener('change', function () {
+          applySelectedBatchHint(row);
+        });
+      }
+
+      // Prevent duplicates if more than 1 row
+      updateRemoveButtons();
     }
 
-    google.script.run
-      .withSuccessHandler(function (uomInfo) {
-        const uom = (uomInfo && uomInfo.uomCode) ? String(uomInfo.uomCode).trim() : 'KG';
-        const opts = (uomInfo && Array.isArray(uomInfo.uomOptions) && uomInfo.uomOptions.length)
-          ? uomInfo.uomOptions.map(function (x) { return String(x || '').trim().toUpperCase(); }).filter(Boolean)
-          : [uom];
-        setReqUomOptions(uomSelect, opts, uom);
-        applyQtyUomForReqRow(row, (uomSelect && uomSelect.value) ? uomSelect.value : uom);
-        if (qtyInput) {
-          qtyInput.placeholder = 'Qty required';
-          qtyInput.dataset.baseUom = uom.toUpperCase();
-        }
-        if (qtyLabel) qtyLabel.textContent = 'Quantity (' + ((uomSelect && uomSelect.value) ? uomSelect.value : uom) + ')';
-        checkStock(row);
-      })
-      .withFailureHandler(function () {
+    function removeRow(btn) {
+      const row = btn.closest('.item-row');
+      if (!row) return;
+      row.remove();
+      // Renumber remaining rows
+      const rows = document.querySelectorAll('#itemsContainer .item-row');
+      rows.forEach(function (r, idx) {
+        const label = r.querySelector('.row-number');
+        if (label) label.textContent = 'Material ' + (idx + 1);
+      });
+      updateRemoveButtons();
+    }
+
+    function updateRemoveButtons() {
+      const rows = document.querySelectorAll('#itemsContainer .item-row');
+      rows.forEach(function (row) {
+        const btn = row.querySelector('.remove-btn');
+        if (btn) btn.style.display = rows.length > 1 ? 'block' : 'none';
+      });
+    }
+
+    function syncProdItemName(row) {
+      if (!row) return;
+      const itemInput = row.querySelector('.item-code-input');
+      const nameInput = row.querySelector('.item-name');
+      if (!itemInput || !nameInput) return;
+      
+      const code = String(itemInput.value || '').trim().toUpperCase();
+      if (row.dataset.lastLoadedItemNameCode === code) return;
+      
+      if (code) {
+        nameInput.placeholder = 'Fetching...';
+        google.script.run
+          .withSuccessHandler(function(item) {
+            if (String(itemInput.value || '').trim().toUpperCase() === code) {
+              nameInput.value = (item && item.name) ? item.name : 'New Item';
+              row.dataset.lastLoadedItemNameCode = code;
+              nameInput.placeholder = 'Item Name';
+            }
+          })
+          .withFailureHandler(function() {
+            if (String(itemInput.value || '').trim().toUpperCase() === code) {
+              nameInput.value = '';
+              nameInput.placeholder = 'Item Name';
+            }
+          })
+          .getItemByCodeCached(code);
+      } else {
+        nameInput.value = '';
+        row.dataset.lastLoadedItemNameCode = '';
+      }
+    }
+
+    // â”€â”€ Stock check (advisory, not blocking) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+    function checkStock(row) {
+      const itemCode = row.querySelector('.item-code-input').value.trim();
+      const infoEl = row.querySelector('.stock-info');
+      const qtyInput = row.querySelector('.qty-input');
+      const uom = String((qtyInput && qtyInput.dataset.baseUom) || (qtyInput && qtyInput.dataset.uom) || 'KG');
+
+      if (!itemCode) {
+        infoEl.textContent = '';
+        infoEl.className = 'stock-info';
+        return;
+      }
+
+      infoEl.textContent = 'Checking stock...';
+      infoEl.className = 'stock-info';
+
+      google.script.run
+        .withSuccessHandler(function (summary) {
+          if (!summary) {
+            infoEl.textContent = 'Item not found in master';
+            infoEl.className = 'stock-info warn';
+            return;
+          }
+          const approved = Number(summary.approved || 0);
+          const pending = Number(summary.pending || 0);
+
+          if (approved > 0) {
+            infoEl.textContent = 'Available: ' + approved.toFixed(2) + ' ' + uom + ' approved' +
+              (pending > 0 ? ' (' + pending.toFixed(2) + ' ' + uom + ' pending QA)' : '');
+            infoEl.className = 'stock-info ok';
+          } else if (pending > 0) {
+            infoEl.textContent = 'Available: ' + pending.toFixed(2) + ' ' + uom + ' pending QA';
+            infoEl.className = 'stock-info warn';
+          } else {
+            infoEl.textContent = 'No stock found for this item code';
+            infoEl.className = 'stock-info error';
+          }
+        })
+        .withFailureHandler(function () {
+          infoEl.textContent = '';
+          infoEl.className = 'stock-info';
+        })
+        .getItemStockSummary(itemCode);
+    }
+
+    function lookupUomForRow(row) {
+      const itemCode = String(row.querySelector('.item-code-input').value || '').trim();
+      const qtyLabel = row.querySelector('.qty-label');
+      const qtyInput = row.querySelector('.qty-input');
+      const uomSelect = row.querySelector('.uom-select');
+
+      if (!itemCode) {
         setReqUomOptions(uomSelect, ['KG'], 'KG');
         applyQtyUomForReqRow(row, 'KG');
         if (qtyLabel) qtyLabel.textContent = 'Quantity';
@@ -411,229 +459,256 @@
           qtyInput.placeholder = 'Qty required';
           qtyInput.dataset.baseUom = 'KG';
         }
-      })
-      .getItemUomForForm(itemCode);
-  }
+        return;
+      }
 
-  function setReqUomOptions(selectEl, options, preferred) {
-    if (!selectEl) return;
-    const list = Array.from(new Set((options || []).map(function (o) {
-      return String(o || '').trim().toUpperCase();
-    }).filter(Boolean)));
-    if (list.length === 0) list.push('KG');
-    const pick = String(preferred || selectEl.value || list[0] || 'KG').trim().toUpperCase();
-    selectEl.innerHTML = '';
-    list.forEach(function (u) {
-      const opt = document.createElement('option');
-      opt.value = u;
-      opt.textContent = u;
-      selectEl.appendChild(opt);
-    });
-    selectEl.value = list.indexOf(pick) >= 0 ? pick : list[0];
-  }
-
-  function applyQtyUomForReqRow(row, uomCode) {
-    if (!row) return;
-    const qtyInput = row.querySelector('.qty-input');
-    const qtyLabel = row.querySelector('.qty-label');
-    const uom = String(uomCode || 'KG').trim().toUpperCase() || 'KG';
-    if (!qtyInput) return;
-    qtyInput.dataset.uom = uom;
-    const discrete = ['NOS', 'PCS', 'PC', 'EA', 'UNIT', 'UNITS'].indexOf(uom) >= 0;
-    qtyInput.step = discrete ? '1' : '0.01';
-    qtyInput.min = discrete ? '1' : '0.01';
-    if (discrete && qtyInput.value && qtyInput.value.indexOf('.') >= 0) {
-      qtyInput.value = String(Math.round(Number(qtyInput.value) || 0));
+      google.script.run
+        .withSuccessHandler(function (uomInfo) {
+          const uom = (uomInfo && uomInfo.uomCode) ? String(uomInfo.uomCode).trim() : 'KG';
+          const opts = (uomInfo && Array.isArray(uomInfo.uomOptions) && uomInfo.uomOptions.length)
+            ? uomInfo.uomOptions.map(function (x) { return String(x || '').trim().toUpperCase(); }).filter(Boolean)
+            : [uom];
+          setReqUomOptions(uomSelect, opts, uom);
+          applyQtyUomForReqRow(row, (uomSelect && uomSelect.value) ? uomSelect.value : uom);
+          if (qtyInput) {
+            qtyInput.placeholder = 'Qty required';
+            qtyInput.dataset.baseUom = uom.toUpperCase();
+          }
+          if (qtyLabel) qtyLabel.textContent = 'Quantity (' + ((uomSelect && uomSelect.value) ? uomSelect.value : uom) + ')';
+          checkStock(row);
+        })
+        .withFailureHandler(function () {
+          setReqUomOptions(uomSelect, ['KG'], 'KG');
+          applyQtyUomForReqRow(row, 'KG');
+          if (qtyLabel) qtyLabel.textContent = 'Quantity';
+          if (qtyInput) {
+            qtyInput.placeholder = 'Qty required';
+            qtyInput.dataset.baseUom = 'KG';
+          }
+        })
+        .getItemUomForForm(itemCode);
     }
-    if (qtyLabel) qtyLabel.textContent = 'Quantity (' + uom + ')';
-  }
 
-  function setBatchOptions(selectEl, batches, preferred) {
-    if (!selectEl) return;
-    const list = Array.isArray(batches) ? batches : [];
-    const prev = String(preferred || selectEl.value || '').trim();
-    selectEl.innerHTML = '<option value="">Select batch...</option>';
-    list.forEach(function (b) {
-      const batchId = String((b && b.batchId) || '').trim();
-      if (!batchId) return;
-      const approved = Number((b && b.approved) || 0);
-      const pending  = Number((b && b.pending) || 0);
-      const binCount = Number((b && b.binCount) || 0);
-      const opt = document.createElement('option');
-      opt.value = batchId;
-      opt.textContent = batchId + ' | Avl ' + approved.toFixed(2) + (pending > 0 ? ' + ' + pending.toFixed(2) + ' pending' : '') + (binCount > 0 ? ' | ' + binCount + ' bins' : '');
-      selectEl.appendChild(opt);
-    });
-    if (prev && Array.prototype.some.call(selectEl.options, function (o) { return o.value === prev; })) {
-      selectEl.value = prev;
+    function setReqUomOptions(selectEl, options, preferred) {
+      if (!selectEl) return;
+      const list = Array.from(new Set((options || []).map(function (o) {
+        return String(o || '').trim().toUpperCase();
+      }).filter(Boolean)));
+      if (list.length === 0) list.push('KG');
+      const pick = String(preferred || selectEl.value || list[0] || 'KG').trim().toUpperCase();
+      selectEl.innerHTML = '';
+      list.forEach(function (u) {
+        const opt = document.createElement('option');
+        opt.value = u;
+        opt.textContent = u;
+        selectEl.appendChild(opt);
+      });
+      selectEl.value = list.indexOf(pick) >= 0 ? pick : list[0];
     }
-  }
 
-  function loadBatchOptionsForRow(row) {
-    const itemCode = String((row.querySelector('.item-code-input') || {}).value || '').trim();
-    const batchSelect = row.querySelector('.batch-select');
-    const batchInfo = row.querySelector('.batch-info');
-    if (!batchSelect) return;
-    if (!itemCode) {
-      row.dataset.batchOptions = '[]';
-      setBatchOptions(batchSelect, [], '');
-      if (batchInfo) batchInfo.textContent = '';
-      return;
+    function applyQtyUomForReqRow(row, uomCode) {
+      if (!row) return;
+      const qtyInput = row.querySelector('.qty-input');
+      const qtyLabel = row.querySelector('.qty-label');
+      const uom = String(uomCode || 'KG').trim().toUpperCase() || 'KG';
+      if (!qtyInput) return;
+      qtyInput.dataset.uom = uom;
+      const discrete = ['NOS', 'PCS', 'PC', 'EA', 'UNIT', 'UNITS'].indexOf(uom) >= 0;
+      qtyInput.step = discrete ? '1' : '0.01';
+      qtyInput.min = discrete ? '1' : '0.01';
+      if (discrete && qtyInput.value && qtyInput.value.indexOf('.') >= 0) {
+        qtyInput.value = String(Math.round(Number(qtyInput.value) || 0));
+      }
+      if (qtyLabel) qtyLabel.textContent = 'Quantity (' + uom + ')';
     }
-    const reqId = String(Date.now()) + '_' + Math.random().toString(36).slice(2, 8);
-    const codeSnapshot = itemCode.toUpperCase();
-    row.dataset.batchReqId = reqId;
-    row.dataset.batchReqCode = codeSnapshot;
-    if (batchInfo) batchInfo.textContent = 'Loading batches...';
-    google.script.run
-      .withSuccessHandler(function (rows) {
-        // Ignore stale async responses for old itemCode keystrokes.
-        if (String(row.dataset.batchReqId || '') !== reqId) return;
-        const currentCode = String((row.querySelector('.item-code-input') || {}).value || '').trim().toUpperCase();
-        if (currentCode !== codeSnapshot) return;
 
-        const batches = Array.isArray(rows) ? rows : [];
-        row.dataset.batchOptions = JSON.stringify(batches);
-        setBatchOptions(batchSelect, batches, batchSelect.value);
-        applySelectedBatchHint(row);
-        if (batchInfo && !batchSelect.value) {
-          batchInfo.textContent = batches.length > 0 ? 'Select batch for this request line.' : 'No positive stock batches found for this item.';
-        }
-      })
-      .withFailureHandler(function () {
-        if (String(row.dataset.batchReqId || '') !== reqId) return;
+    function setBatchOptions(selectEl, batches, preferred) {
+      if (!selectEl) return;
+      const list = Array.isArray(batches) ? batches : [];
+      const prev = String(preferred || selectEl.value || '').trim();
+      selectEl.innerHTML = '<option value="">Select batch...</option>';
+      list.forEach(function (b) {
+        const batchId = String((b && b.batchId) || '').trim();
+        const batchNumber = String((b && (b.batchNumber || b.batchId)) || '').trim();
+        if (!batchId) return;
+        const approved = Number((b && b.approved) || 0);
+        const pending = Number((b && b.pending) || 0);
+        const binCount = Number((b && b.binCount) || 0);
+        const opt = document.createElement('option');
+        opt.value = batchId;
+        opt.textContent = batchNumber + ' | Avl ' + approved.toFixed(2) + (pending > 0 ? ' + ' + pending.toFixed(2) + ' pending' : '') + (binCount > 0 ? ' | ' + binCount + ' bins' : '');
+        selectEl.appendChild(opt);
+      });
+      if (prev && Array.prototype.some.call(selectEl.options, function (o) { return o.value === prev; })) {
+        selectEl.value = prev;
+      }
+    }
+
+    function loadBatchOptionsForRow(row) {
+      const itemCode = String((row.querySelector('.item-code-input') || {}).value || '').trim();
+      const batchSelect = row.querySelector('.batch-select');
+      const batchInfo = row.querySelector('.batch-info');
+      if (!batchSelect) return;
+      if (!itemCode) {
         row.dataset.batchOptions = '[]';
         setBatchOptions(batchSelect, [], '');
         if (batchInfo) batchInfo.textContent = '';
-      })
-      .getItemBatchStockSummary(itemCode);
-  }
+        return;
+      }
+      const reqId = String(Date.now()) + '_' + Math.random().toString(36).slice(2, 8);
+      const codeSnapshot = itemCode.toUpperCase();
+      row.dataset.batchReqId = reqId;
+      row.dataset.batchReqCode = codeSnapshot;
+      if (batchInfo) batchInfo.textContent = 'Loading batches...';
+      google.script.run
+        .withSuccessHandler(function (rows) {
+          // Ignore stale async responses for old itemCode keystrokes.
+          if (String(row.dataset.batchReqId || '') !== reqId) return;
+          const currentCode = String((row.querySelector('.item-code-input') || {}).value || '').trim().toUpperCase();
+          if (currentCode !== codeSnapshot) return;
 
-  function applySelectedBatchHint(row) {
-    const batchSelect = row.querySelector('.batch-select');
-    const batchInfo = row.querySelector('.batch-info');
-    const qtyInput = row.querySelector('.qty-input');
-    if (!batchSelect || !batchInfo) return;
-    const batchId = String(batchSelect.value || '').trim();
-    if (!batchId) {
-      batchInfo.textContent = '';
-      return;
+          const batches = Array.isArray(rows) ? rows : [];
+          row.dataset.batchOptions = JSON.stringify(batches);
+          setBatchOptions(batchSelect, batches, batchSelect.value);
+          applySelectedBatchHint(row);
+          if (batchInfo && !batchSelect.value) {
+            batchInfo.textContent = batches.length > 0 ? 'Select batch for this request line.' : 'No positive stock batches found for this item.';
+          }
+        })
+        .withFailureHandler(function () {
+          if (String(row.dataset.batchReqId || '') !== reqId) return;
+          row.dataset.batchOptions = '[]';
+          setBatchOptions(batchSelect, [], '');
+          if (batchInfo) batchInfo.textContent = '';
+        })
+        .getItemBatchStockSummary(itemCode);
     }
-    let list = [];
-    try { list = JSON.parse(String(row.dataset.batchOptions || '[]')); } catch (e) { list = []; }
-    const found = (list || []).find(function (b) { return String((b && b.batchId) || '').trim() === batchId; });
-    if (!found) {
-      batchInfo.textContent = '';
-      return;
-    }
-    const approved = Number(found.approved || 0);
-    const pending = Number(found.pending || 0);
-    const total = Number(found.total || 0);
-    const bins = Number(found.binCount || 0);
-    const req = Number((qtyInput && qtyInput.value) || 0);
-    let msg = 'Batch stock: ' + approved.toFixed(2) + ' approved';
-    if (pending > 0) msg += ' + ' + pending.toFixed(2) + ' pending';
-    if (bins > 0) msg += ' across ' + bins + ' bins';
-    if (req > 0 && req > total + 0.001) {
-      msg += ' | Requested qty exceeds this batch stock';
-    }
-    batchInfo.textContent = msg;
-  }
 
-  // â”€â”€ Form submit â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-
-  function handleSubmit(e) {
-    e.preventDefault();
-
-    const submitBtn  = document.getElementById('submitBtn');
-    const loadingMsg = document.getElementById('loadingMsg');
-
-    // Collect items
-    const items = [];
-    let valid = true;
-    document.querySelectorAll('#itemsContainer .item-row').forEach(function(row, idx) {
-      const code  = row.querySelector('.item-code-input').value.trim();
+    function applySelectedBatchHint(row) {
+      const batchSelect = row.querySelector('.batch-select');
+      const batchInfo = row.querySelector('.batch-info');
       const qtyInput = row.querySelector('.qty-input');
-      const qty   = Number(qtyInput.value);
-      const jobOrderNo = String((row.querySelector('.job-order-input') || {}).value || '').trim();
-      const batchId = String((row.querySelector('.batch-select') || {}).value || '').trim();
-      let batchOptions = [];
-      try { batchOptions = JSON.parse(String(row.dataset.batchOptions || '[]')); } catch (err) { batchOptions = []; }
-      if (!code || !qty || qty <= 0) {
-        valid = false;
+      if (!batchSelect || !batchInfo) return;
+      const batchId = String(batchSelect.value || '').trim();
+      if (!batchId) {
+        batchInfo.textContent = '';
         return;
       }
-      if (batchOptions.length > 0 && !batchId) {
-        valid = false;
+      let list = [];
+      try { list = JSON.parse(String(row.dataset.batchOptions || '[]')); } catch (e) { list = []; }
+      const found = (list || []).find(function (b) { return String((b && b.batchId) || '').trim() === batchId; });
+      if (!found) {
+        batchInfo.textContent = '';
         return;
       }
-      items.push({
-        itemCode: code,
-        quantity: qty,
-        uom: String((row.querySelector('.uom-select') || {}).value || (qtyInput && qtyInput.dataset.uom) || 'KG'),
-        jobOrderNo: jobOrderNo,
-        batchId: batchId
+      const batchNumber = String(found.batchNumber || found.batchId || '').trim();
+      const approved = Number(found.approved || 0);
+      const pending = Number(found.pending || 0);
+      const total = Number(found.total || 0);
+      const bins = Number(found.binCount || 0);
+      const req = Number((qtyInput && qtyInput.value) || 0);
+      let msg = batchNumber ? ('Batch ' + batchNumber + ': ' + approved.toFixed(2) + ' approved') : ('Batch stock: ' + approved.toFixed(2) + ' approved');
+      if (pending > 0) msg += ' + ' + pending.toFixed(2) + ' pending';
+      if (bins > 0) msg += ' across ' + bins + ' bins';
+      if (req > 0 && req > total + 0.001) {
+        msg += ' | Requested qty exceeds this batch stock';
+      }
+      batchInfo.textContent = msg;
+    }
+
+    // â”€â”€ Form submit â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+    function handleSubmit(e) {
+      e.preventDefault();
+
+      const submitBtn = document.getElementById('submitBtn');
+      const loadingMsg = document.getElementById('loadingMsg');
+
+      // Collect items
+      const items = [];
+      let valid = true;
+      document.querySelectorAll('#itemsContainer .item-row').forEach(function (row, idx) {
+        const code = row.querySelector('.item-code-input').value.trim();
+        const qtyInput = row.querySelector('.qty-input');
+        const qty = Number(qtyInput.value);
+        const jobOrderNo = String((row.querySelector('.job-order-input') || {}).value || '').trim();
+        const batchId = String((row.querySelector('.batch-select') || {}).value || '').trim();
+        let batchOptions = [];
+        try { batchOptions = JSON.parse(String(row.dataset.batchOptions || '[]')); } catch (err) { batchOptions = []; }
+        if (!code || !qty || qty <= 0) {
+          valid = false;
+          return;
+        }
+        if (batchOptions.length > 0 && !batchId) {
+          valid = false;
+          return;
+        }
+        items.push({
+          itemCode: code,
+          quantity: qty,
+          uom: String((row.querySelector('.uom-select') || {}).value || (qtyInput && qtyInput.dataset.uom) || 'KG'),
+          jobOrderNo: jobOrderNo,
+          batchId: batchId
+        });
       });
-    });
 
-    if (!valid || items.length === 0) {
-      alert('Please fill Item Code, Quantity, and select Batch where available.');
-      return;
+      if (!valid || items.length === 0) {
+        alert('Please fill Item Code, Quantity, and select Batch where available.');
+        return;
+      }
+
+      // Check for duplicate item+batch lines
+      const keys = items.map(function (i) {
+        return String(i.itemCode || '').toUpperCase() + '||' + String(i.batchId || '').toUpperCase();
+      });
+      const dups = keys.filter(function (c, i) { return keys.indexOf(c) !== i; });
+      if (dups.length > 0) {
+        if (!confirm('Duplicate item/batch lines found. Continue?')) return;
+      }
+
+      submitBtn.disabled = true;
+      loadingMsg.classList.remove('d-none');
+
+      const payload = {
+        items: items,
+        remarks: document.getElementById('remarks').value.trim()
+      };
+
+      google.script.run
+        .withSuccessHandler(function (res) {
+          submitBtn.disabled = false;
+          loadingMsg.classList.add('d-none');
+
+          // Show success banner
+          document.getElementById('poRefDisplay').textContent = res.orderRef;
+          document.getElementById('successBanner').style.display = 'block';
+
+          // Reset form
+          document.getElementById('reqForm').reset();
+          document.getElementById('itemsContainer').innerHTML = '';
+          rowCount = 0;
+          addItemRow();
+
+          // Scroll to banner
+          document.getElementById('successBanner').scrollIntoView({ behavior: 'smooth' });
+        })
+        .withFailureHandler(function (err) {
+          submitBtn.disabled = false;
+          loadingMsg.classList.add('d-none');
+          alert('Error: ' + err.message);
+        })
+        .submitProductionRequestV3(payload);
     }
 
-    // Check for duplicate item+batch lines
-    const keys = items.map(function(i){
-      return String(i.itemCode || '').toUpperCase() + '||' + String(i.batchId || '').toUpperCase();
-    });
-    const dups  = keys.filter(function(c, i){ return keys.indexOf(c) !== i; });
-    if (dups.length > 0) {
-      if (!confirm('Duplicate item/batch lines found. Continue?')) return;
+
+    function goBack() {
+      if (navInProgress) return;
+      navInProgress = true;
+      google.script.run.withSuccessHandler(function (url) {
+        window.top.location.href = url + '?form=dashboard';
+      }).getScriptUrl();
     }
-
-    submitBtn.disabled = true;
-    loadingMsg.classList.remove('d-none');
-
-    const payload = {
-      items   : items,
-      remarks : document.getElementById('remarks').value.trim()
-    };
-
-    google.script.run
-      .withSuccessHandler(function (res) {
-        submitBtn.disabled = false;
-        loadingMsg.classList.add('d-none');
-
-        // Show success banner
-        document.getElementById('poRefDisplay').textContent = res.orderRef;
-        document.getElementById('successBanner').style.display = 'block';
-
-        // Reset form
-        document.getElementById('reqForm').reset();
-        document.getElementById('itemsContainer').innerHTML = '';
-        rowCount = 0;
-        addItemRow();
-
-        // Scroll to banner
-        document.getElementById('successBanner').scrollIntoView({ behavior: 'smooth' });
-      })
-      .withFailureHandler(function (err) {
-        submitBtn.disabled = false;
-        loadingMsg.classList.add('d-none');
-        alert('Error: ' + err.message);
-      })
-      .submitProductionRequestV3(payload);
-  }
-
-
-  function goBack() {
-    if (navInProgress) return;
-    navInProgress = true;
-    google.script.run.withSuccessHandler(function (url) {
-      window.top.location.href = url + '?form=dashboard';
-    }).getScriptUrl();
-  }
-</script>
+  </script>
 </body>
+
 </html>
-
-

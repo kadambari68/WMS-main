@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 
 <head>
@@ -484,17 +484,20 @@
         <i class="fa-solid fa-trash-can"></i>
       </button>
       <div class="row g-3">
-        <div class="col-md-3">
+        <div class="col-md-2">
           <label class="form-label">Item Code</label>
           <input type="text" class="form-control item-input" placeholder="Scan or Type" required>
         </div>
-        <div class="col-md-3">
-          <label class="form-label">Lot No</label>
-          <input type="text" class="form-control lot-input" placeholder="Lot (optional)">
+        <div class="col-md-4">
+          <label class="form-label">Item Name</label>
+          <input type="text" class="form-control item-name-input" placeholder="..." readonly tabindex="-1">
         </div>
         <div class="col-md-3">
           <label class="form-label">Batch No</label>
-          <input type="text" class="form-control batch-input" placeholder="Batch" required>
+          <select class="form-select batch-input" required>
+            <option value="">Select Batch...</option>
+          </select>
+          <div class="batch-hint text-muted small mt-1"></div>
         </div>
         <div class="col-md-3">
           <label class="form-label qty-label">Qty</label>
@@ -569,11 +572,17 @@
     let binMap = {};
     let locationsMasterData = [];
     let inventoryData = [];
+    let inventoryRowsByItem = {};
+    let inventoryBatchSummaryByItem = {};
     let inventoryLoaded = false;
     let warehouseBinIndex = {};
     let warehouseLoaded = false;
     let binsLoaded = false;
     let locationsLoaded = false;
+    let dispatchStockCache = {};
+    let dispatchStockPending = {};
+    let itemCatalogLoaded = false;
+    let itemNameByCode = {};
     let navInProgress = false;
 
     // PO state â€” tracks whether items were auto-loaded from a PO
@@ -589,19 +598,34 @@
       google.script.run.withSuccessHandler(function (bins) {
         binsData = bins || [];
         binMap = {};
-        binsData.forEach(function (b) { if (b && b.binId) binMap[String(b.binId)] = String(b.binCode || b.binId); });
+        binsData.forEach(function (b) {
+          if (b && b.binId) binMap[String(b.binId)] = formatDispatchBinLabel(b);
+        });
         binsLoaded = true;
         maybeAddFirstRow();
       }).getBins();
 
       refreshInventorySnapshot();
-      refreshWarehouseSnapshot();
 
       google.script.run.withSuccessHandler(function (locs) {
         locationsMasterData = locs || [];
         locationsLoaded = true;
         maybeAddFirstRow();
       }).getLocationsFromMaster();
+
+      google.script.run.withSuccessHandler(function (items) {
+        itemNameByCode = {};
+        (items || []).forEach(function (item) {
+          const codeKey = norm(item && item.code);
+          if (!codeKey) return;
+          itemNameByCode[codeKey] = String((item && item.name) || item.code || '').trim();
+        });
+        itemCatalogLoaded = true;
+        buildItemDatalist();
+        refreshVisibleDispatchRows();
+      }).withFailureHandler(function () {
+        itemCatalogLoaded = true;
+      }).getItems();
     }
 
     function maybeAddFirstRow() {
@@ -610,6 +634,221 @@
 
     function norm(v) { return String(v || '').trim().toLowerCase(); }
     function uniqueSorted(list) { return Array.from(new Set(list.filter(function (v) { return v !== ''; }))).sort(); }
+    function formatDispatchBinLabel(bin) {
+      const code = String((bin && (bin.displayLabel || bin.binCode || bin.binId)) || '').trim();
+      if (!bin) return code;
+      if (String(bin.displayLabel || '').trim()) return String(bin.displayLabel).trim();
+      const uom = String(bin.capacityUom || '').trim().toUpperCase();
+      return uom ? (code + ' (' + uom + ')') : code;
+    }
+
+    function getDispatchStockCached(itemCode, onSuccess, onFailure) {
+      const code = String(itemCode || '').trim().toUpperCase();
+      if (!code) {
+        onSuccess([]);
+        return;
+      }
+      if (Object.prototype.hasOwnProperty.call(dispatchStockCache, code)) {
+        onSuccess(dispatchStockCache[code] || []);
+        return;
+      }
+      if (dispatchStockPending[code]) {
+        dispatchStockPending[code].push({ onSuccess: onSuccess, onFailure: onFailure });
+        return;
+      }
+      dispatchStockPending[code] = [{ onSuccess: onSuccess, onFailure: onFailure }];
+      google.script.run
+        .withSuccessHandler(function (rows) {
+          const list = Array.isArray(rows) ? rows : [];
+          dispatchStockCache[code] = list;
+          const waiters = dispatchStockPending[code] || [];
+          delete dispatchStockPending[code];
+          waiters.forEach(function (w) { if (w.onSuccess) w.onSuccess(list); });
+        })
+        .withFailureHandler(function (err) {
+          const waiters = dispatchStockPending[code] || [];
+          delete dispatchStockPending[code];
+          waiters.forEach(function (w) { if (w.onFailure) w.onFailure(err); });
+        })
+        .getTransferStockByItemCode(code);
+    }
+
+    function summarizeDispatchBatches(rows) {
+      const batchMap = {};
+      (rows || []).forEach(function (row) {
+        const batchId = String((row && row.batchId) || '').trim();
+        if (!batchId) return;
+        if (!batchMap[batchId]) {
+          batchMap[batchId] = {
+            batchId: batchId,
+            batchNumber: String((row && (row.batchNumber || row.batchId)) || batchId).trim(),
+            approvedQty: 0,
+            totalQty: 0,
+            uom: String((row && row.uom) || '').trim().toUpperCase() || 'KG',
+            binSet: {}
+          };
+        }
+        const batch = batchMap[batchId];
+        const qty = Number((row && row.qty) || 0);
+        const qa = norm(row && row.qaStatus);
+        batch.totalQty += qty;
+        if (qa === 'approved' || qa === 'overridden') batch.approvedQty += qty;
+        const binId = String((row && row.binId) || '').trim();
+        if (binId) batch.binSet[binId] = true;
+      });
+
+      return Object.keys(batchMap).map(function (batchId) {
+        const batch = batchMap[batchId];
+        batch.binCount = Object.keys(batch.binSet || {}).length;
+        delete batch.binSet;
+        return batch;
+      }).sort(function (a, b) {
+        if (Number(b.approvedQty || 0) !== Number(a.approvedQty || 0)) {
+          return Number(b.approvedQty || 0) - Number(a.approvedQty || 0);
+        }
+        if (Number(b.totalQty || 0) !== Number(a.totalQty || 0)) {
+          return Number(b.totalQty || 0) - Number(a.totalQty || 0);
+        }
+        return String(a.batchNumber || a.batchId).localeCompare(String(b.batchNumber || b.batchId));
+      });
+    }
+
+    function _buildDispatchInventoryIndexes(rows) {
+      const byItem = {};
+      const batchSummaryByItem = {};
+
+      (rows || []).forEach(function (r) {
+        const codeKey = norm(r && r.itemCode);
+        if (!codeKey) return;
+        if (!byItem[codeKey]) byItem[codeKey] = [];
+        byItem[codeKey].push(r);
+
+        const batchId = String((r && (r.batchId || r.batchNumber)) || '').trim();
+        if (!batchId) return;
+        if (!batchSummaryByItem[codeKey]) batchSummaryByItem[codeKey] = {};
+        if (!batchSummaryByItem[codeKey][batchId]) {
+          batchSummaryByItem[codeKey][batchId] = {
+            batchId: batchId,
+            batchNumber: String((r && (r.batchNumber || r.batchId)) || batchId).trim(),
+            approvedQty: 0,
+            totalQty: 0,
+            binSet: {},
+            uom: String((r && r.uom) || '').trim().toUpperCase() || 'KG'
+          };
+        }
+
+        const summary = batchSummaryByItem[codeKey][batchId];
+        const qty = Number((r && r.quantity) || 0);
+        const qa = norm(r && r.qualityStatus);
+        summary.totalQty += qty;
+        if (qa === 'approved' || qa === 'overridden') summary.approvedQty += qty;
+        const binId = String((r && r.binId) || '').trim();
+        if (binId) summary.binSet[binId] = true;
+      });
+
+      Object.keys(batchSummaryByItem).forEach(function (codeKey) {
+        batchSummaryByItem[codeKey] = Object.keys(batchSummaryByItem[codeKey]).map(function (batchId) {
+          const summary = batchSummaryByItem[codeKey][batchId];
+          summary.binCount = Object.keys(summary.binSet || {}).length;
+          delete summary.binSet;
+          return summary;
+        }).sort(function (a, b) {
+          if (Number(b.approvedQty || 0) !== Number(a.approvedQty || 0)) {
+            return Number(b.approvedQty || 0) - Number(a.approvedQty || 0);
+          }
+          if (Number(b.totalQty || 0) !== Number(a.totalQty || 0)) {
+            return Number(b.totalQty || 0) - Number(a.totalQty || 0);
+          }
+          return String(a.batchNumber || a.batchId).localeCompare(String(b.batchNumber || b.batchId));
+        });
+      });
+
+      return {
+        byItem: byItem,
+        batchSummaryByItem: batchSummaryByItem
+      };
+    }
+
+    function getBatchSummariesForItem(itemCode) {
+      const codeKey = norm(itemCode);
+      return (inventoryBatchSummaryByItem[codeKey] || []).slice();
+    }
+
+    function getItemNameForDispatchCode(itemCode) {
+      const codeKey = norm(itemCode);
+      if (!codeKey) return '';
+      if (itemNameByCode[codeKey]) return itemNameByCode[codeKey];
+      const rows = inventoryRowsByItem[codeKey] || [];
+      const first = rows[0] || {};
+      return String(first.itemName || first.itemCode || itemCode || '').trim();
+    }
+
+    function syncDispatchItemName(row) {
+      if (!row) return;
+      const itemInput = row.querySelector('.item-input');
+      const nameInput = row.querySelector('.item-name-input');
+      if (!itemInput || !nameInput) return;
+      const itemCode = String(itemInput.value || '').trim();
+      nameInput.value = itemCode ? getItemNameForDispatchCode(itemCode) : '';
+    }
+
+    function getRowBatchSummaries(row) {
+      if (!row || !row.dataset) return [];
+      try {
+        const parsed = JSON.parse(row.dataset.batchSummaries || '[]');
+        return Array.isArray(parsed) ? parsed : [];
+      } catch (e) {
+        return [];
+      }
+    }
+
+    function renderBatchHint(row) {
+      if (!row) return;
+      const hintEl = row.querySelector('.batch-hint');
+      const batchInput = row.querySelector('.batch-input');
+      const itemInput = row.querySelector('.item-input');
+      if (!hintEl || !batchInput || !itemInput) return;
+
+      const itemCode = String(itemInput.value || '').trim();
+      const selectedBatch = String(batchInput.value || '').trim();
+      if (!itemCode) {
+        hintEl.textContent = '';
+        return;
+      }
+
+      const summaries = getRowBatchSummaries(row);
+      if (summaries.length === 0) {
+        hintEl.textContent = 'No available batches found for this item.';
+        return;
+      }
+
+      const selected = summaries.find(function (summary) {
+        return norm(summary.batchId) === norm(selectedBatch);
+      });
+      if (selected) {
+        const qtyLabel = Number(selected.approvedQty || 0).toFixed(2) + ' approved / ' + Number(selected.totalQty || 0).toFixed(2) + ' total ' + (selected.uom || 'KG');
+        const binLabel = selected.binCount > 0 ? (' | ' + selected.binCount + ' bin' + (selected.binCount > 1 ? 's' : '')) : '';
+        hintEl.textContent = 'Batch ' + (selected.batchNumber || selected.batchId) + ': ' + qtyLabel + binLabel;
+        return;
+      }
+
+      const totalApproved = summaries.reduce(function (sum, summary) {
+        return sum + (Number(summary.approvedQty || 0) || 0);
+      }, 0);
+      const totalQty = summaries.reduce(function (sum, summary) {
+        return sum + (Number(summary.totalQty || 0) || 0);
+      }, 0);
+      const uom = summaries[0] ? (summaries[0].uom || 'KG') : 'KG';
+      hintEl.textContent = summaries.length + ' batch' + (summaries.length > 1 ? 'es' : '') +
+        ' available | Approved ' + totalApproved.toFixed(2) + ' / Total ' + totalQty.toFixed(2) + ' ' + uom;
+    }
+
+    function refreshVisibleDispatchRows() {
+      document.querySelectorAll('.item-row').forEach(function (row) {
+        syncDispatchItemName(row);
+        updateBatchOptions(row);
+      });
+    }
 
     function buildItemDatalist() {
       const list = document.getElementById('itemDatalist');
@@ -619,6 +858,11 @@
       items.forEach(function (code) {
         const opt = document.createElement('option');
         opt.value = code;
+        const itemName = getItemNameForDispatchCode(code);
+        if (itemName && norm(itemName) !== norm(code)) {
+          opt.label = itemName;
+          opt.textContent = code + ' | ' + itemName;
+        }
         list.appendChild(opt);
       });
     }
@@ -628,12 +872,18 @@
       google.script.run
         .withSuccessHandler(function (rows) {
           inventoryData = rows || [];
+          const indexes = _buildDispatchInventoryIndexes(inventoryData);
+          inventoryRowsByItem = indexes.byItem;
+          inventoryBatchSummaryByItem = indexes.batchSummaryByItem;
           inventoryLoaded = true;
           buildItemDatalist();
+          refreshVisibleDispatchRows();
           if (typeof onDone === 'function') onDone(true);
         })
         .withFailureHandler(function () {
           inventoryLoaded = true;
+          inventoryRowsByItem = {};
+          inventoryBatchSummaryByItem = {};
           if (typeof onDone === 'function') onDone(false);
         })
         .getInventoryReadView();
@@ -697,8 +947,7 @@
     function getInventoryRows(itemCode, batchId) {
       const codeKey = norm(itemCode);
       const batchKey = norm(batchId);
-      return (inventoryData || []).filter(function (r) {
-        if (norm(r.itemCode) !== codeKey) return false;
+      return (inventoryRowsByItem[codeKey] || []).filter(function (r) {
         if (batchKey && norm(r.batchId) !== batchKey) return false;
         return (Number(r.quantity) || 0) > 0;
       });
@@ -740,51 +989,37 @@
         return;
       }
 
-      statusEl.textContent = 'Refreshing inventory snapshot...';
+      statusEl.textContent = 'Loading PO and source bins...';
       statusEl.className = 'po-status-msg info';
       lookupBtn.disabled = true;
 
-      refreshInventorySnapshot(function (ok) {
-        if (!ok) {
+      google.script.run
+        .withSuccessHandler(function (result) {
           lookupBtn.disabled = false;
-          statusEl.textContent = 'Error: inventory snapshot failed. Please refresh and try again.';
+
+          if (result && result.error) {
+            statusEl.textContent = 'Error: ' + result.error;
+            statusEl.className = 'po-status-msg error';
+            return;
+          }
+
+          if (!result || !result.items || result.items.length === 0) {
+            statusEl.textContent = 'No items found for this PO.';
+            statusEl.className = 'po-status-msg error';
+            return;
+          }
+
+          statusEl.textContent = 'Loaded ' + result.items.length + ' item(s). Allocate quantity from available stock bins.';
+          statusEl.className = 'po-status-msg ok';
+
+          renderPOItems(result.items);
+        })
+        .withFailureHandler(function (err) {
+          lookupBtn.disabled = false;
+          statusEl.textContent = 'Error: ' + (err.message || 'Lookup failed. Try again.');
           statusEl.className = 'po-status-msg error';
-          return;
-        }
-
-        statusEl.textContent = 'Looking up PO...';
-        statusEl.className = 'po-status-msg info';
-        refreshWarehouseSnapshot(function () {
-
-          google.script.run
-            .withSuccessHandler(function (result) {
-              lookupBtn.disabled = false;
-
-              if (result && result.error) {
-                statusEl.textContent = 'Error: ' + result.error;
-                statusEl.className = 'po-status-msg error';
-                return;
-              }
-
-              if (!result || !result.items || result.items.length === 0) {
-                statusEl.textContent = 'No items found for this PO.';
-                statusEl.className = 'po-status-msg error';
-                return;
-              }
-
-              statusEl.textContent = 'Loaded ' + result.items.length + ' item(s). Allocate quantity from available stock bins.';
-              statusEl.className = 'po-status-msg ok';
-
-              renderPOItems(result.items);
-            })
-            .withFailureHandler(function (err) {
-              lookupBtn.disabled = false;
-              statusEl.textContent = 'Error: ' + (err.message || 'Lookup failed. Try again.');
-              statusEl.className = 'po-status-msg error';
-            })
-            .getApprovedProductionOrderItems(poNo);
-        });
-      });
+        })
+        .getConsumptionLoadData(poNo);
     }
 
     // Allow Enter key in PO input to trigger lookup
@@ -925,7 +1160,7 @@
     }
 
     function formatPoBinOption(bin) {
-      let label = (bin.binCode || bin.binId);
+      let label = formatDispatchBinLabel(bin);
       const bucketCount = Array.isArray(bin.batchBuckets)
         ? bin.batchBuckets.filter(function (b) { return !!String(b.batchId || '').trim(); }).length
         : 0;
@@ -1089,16 +1324,19 @@
         const itemCode = String(item.itemCode || '').trim();
         const itemId = String(item.itemId || '').trim();
         const jobOrderNo = String(item.jobOrderNo || item.batchId || '').trim();
+        const ledgerRowIndex = String(item.ledgerRowIndex || '').trim();
         const requiredQty = Number(item.remaining || 0);
         const version = String(item.version || '').trim();
+        const uomCode = String(item.uomCode || 'KG').trim() || 'KG';
 
         rowDiv.dataset.itemCode = itemCode;
         rowDiv.dataset.itemId = itemId;
         rowDiv.dataset.batchId = '';
         rowDiv.dataset.ledgerBatchId = jobOrderNo || 'TBD';
+        rowDiv.dataset.ledgerRowIndex = ledgerRowIndex;
         rowDiv.dataset.requiredQty = requiredQty.toFixed(3);
         rowDiv.dataset.allocValid = 'false';
-        rowDiv.dataset.uom = 'KG'; // will be updated async
+        rowDiv.dataset.uom = uomCode;
 
         const versionHtml = version && version !== 'TBD'
           ? '<span class="version-badge">' + escHtml(version) + '</span>'
@@ -1108,7 +1346,7 @@
         rowDiv.innerHTML =
           '<div class="po-item-header">' +
           '<span class="po-item-code">' + escHtml(itemCode) + versionHtml + '</span>' +
-          '<span class="po-item-qty-label po-qty-display">Issue: <strong>' + requiredQty.toFixed(2) + ' KG</strong></span>' +
+          '<span class="po-item-qty-label po-qty-display">Issue: <strong>' + requiredQty.toFixed(2) + ' ' + escHtml(uomCode) + '</strong></span>' +
           '</div>' +
           '<div class="po-alloc-note">' +
           'Select source bin for this item' + jobOrderLabel +
@@ -1125,7 +1363,7 @@
         container.appendChild(rowDiv);
 
         // ── Fetch UOM and update label async (non-blocking) ──────────────────
-        if (itemCode) {
+        if (itemCode && !item.uomCode) {
           google.script.run
             .withSuccessHandler(function (uomInfo) {
               const uom = (uomInfo && uomInfo.uomCode) ? String(uomInfo.uomCode) : 'KG';
@@ -1141,7 +1379,7 @@
             .getItemUomForForm(itemCode);
         }
 
-        const binOptions = getPoBinOptions(itemCode, '', itemId);
+        const binOptions = Array.isArray(item.sourceOptions) ? item.sourceOptions : getPoBinOptions(itemCode, '', itemId);
         rowDiv.dataset.binOptions = JSON.stringify(binOptions);
 
         if (!binOptions || binOptions.length === 0) {
@@ -1234,12 +1472,8 @@
     function wireRowInventoryEvents(row) {
       const itemInput = row.querySelector('.item-input');
       const batchInput = row.querySelector('.batch-input');
-      const batchList = row.querySelector('.batch-list');
-      const batchListId = 'batchList_' + itemCount;
 
       if (itemInput) itemInput.setAttribute('list', 'itemDatalist');
-      if (batchList) batchList.id = batchListId;
-      if (batchInput) batchInput.setAttribute('list', batchListId);
       const uomSelect = row.querySelector('.uom-select');
       if (uomSelect) {
         uomSelect.addEventListener('change', function () {
@@ -1247,28 +1481,79 @@
         });
       }
 
-      itemInput.addEventListener('change', function () {
+      function onItemCodeChange() {
+        if (itemInput) {
+          itemInput.value = String(itemInput.value || '').trim().toUpperCase();
+        }
+        syncDispatchItemName(row);
         updateBatchOptions(row);
         refreshQaSummaryForRow(row);
         lookupUomForDispatchRow(row); // FIX: update qty label with item UOM
-      });
+      }
+
+      itemInput.addEventListener('change', onItemCodeChange);
+      itemInput.addEventListener('blur', onItemCodeChange);
       batchInput.addEventListener('change', function () {
+        renderBatchHint(row);
         refreshQaSummaryForRow(row);
+      });
+      batchInput.addEventListener('blur', function () {
+        renderBatchHint(row);
       });
     }
 
     function updateBatchOptions(row) {
-      const itemCode = row.querySelector('.item-input').value.trim();
-      const batchList = row.querySelector('.batch-list');
-      if (!batchList) return;
-      batchList.innerHTML = '';
-      if (!itemCode) return;
-      const rows = getInventoryRows(itemCode, '');
-      const batches = uniqueSorted(rows.map(function (r) { return String(r.batchId || '').trim(); }));
-      batches.forEach(function (b) {
-        const opt = document.createElement('option');
-        opt.value = b;
-        batchList.appendChild(opt);
+      const itemInput = row.querySelector('.item-input');
+      const itemCode = itemInput ? String(itemInput.value || '').trim() : '';
+      const batchInput = row.querySelector('.batch-input');
+      if (!batchInput) return;
+      const previousValue = String(batchInput.value || '').trim();
+      batchInput.innerHTML = '<option value="">Select Batch...</option>';
+      row.dataset.batchSummaries = '[]';
+      if (!itemCode) {
+        batchInput.value = '';
+        renderBatchHint(row);
+        return;
+      }
+
+      const requestedCode = itemCode.toUpperCase();
+      batchInput.innerHTML = '<option value="">Loading batches...</option>';
+      getDispatchStockCached(itemCode, function (rows) {
+        const latestCode = String(((row.querySelector('.item-input') || {}).value) || '').trim().toUpperCase();
+        if (latestCode !== requestedCode) return;
+
+        const summaries = summarizeDispatchBatches(rows || []);
+        row.dataset.batchSummaries = JSON.stringify(summaries);
+        batchInput.innerHTML = '<option value="">Select Batch...</option>';
+
+        summaries.forEach(function (summary) {
+          const opt = document.createElement('option');
+          const batchLabel = String(summary.batchNumber || summary.batchId || '').trim();
+          opt.value = String(summary.batchId || '').trim();
+          opt.textContent = batchLabel + ' | Approved ' + Number(summary.approvedQty || 0).toFixed(2) +
+            ' / Total ' + Number(summary.totalQty || 0).toFixed(2) + ' ' + (summary.uom || 'KG');
+          batchInput.appendChild(opt);
+        });
+
+        const current = previousValue;
+        const hasCurrent = summaries.some(function (summary) {
+          return norm(summary.batchId) === norm(current);
+        });
+        if (current && hasCurrent) {
+          batchInput.value = current;
+        } else if (current && !hasCurrent) {
+          batchInput.value = '';
+        } else if (!current && summaries.length === 1) {
+          batchInput.value = String(summaries[0].batchId || '').trim();
+        }
+        renderBatchHint(row);
+        refreshQaSummaryForRow(row);
+      }, function () {
+        const latestCode = String(((row.querySelector('.item-input') || {}).value) || '').trim().toUpperCase();
+        if (latestCode !== requestedCode) return;
+        batchInput.innerHTML = '<option value="">Unable to load batches</option>';
+        row.dataset.batchSummaries = '[]';
+        renderBatchHint(row);
       });
     }
 
@@ -1485,7 +1770,7 @@
         if (bin.location === location && bin.site === site) {
           const opt = document.createElement('option');
           opt.value = bin.binId;
-          opt.textContent = bin.binCode || bin.binId;
+          opt.textContent = formatDispatchBinLabel(bin);
           binSelect.appendChild(opt);
         }
       });
@@ -1627,6 +1912,7 @@
           const itemCode = String(row.dataset.itemCode || row.querySelector('.item-input').value || '').trim();
           const ledgerItemId = String(row.dataset.itemId || '').trim();
           const ledgerBatchId = String(row.dataset.ledgerBatchId || '').trim();
+          const ledgerRowIndex = String(row.dataset.ledgerRowIndex || '').trim();
           const binOptions = JSON.parse(row.dataset.binOptions || '[]');
           const optionMap = {};
           binOptions.forEach(function (b) {
@@ -1647,65 +1933,20 @@
               return;
             }
 
-            let remaining = qty;
-            const buckets = Array.isArray(srcMeta.batchBuckets) ? srcMeta.batchBuckets : [];
-            if (buckets.length === 0) {
-              // Bin list came from warehouse dashboard fallback (no batch buckets on client).
-              // Server will split across batches in selected bin.
-              items.push({
-                itemCode: itemCode,
-                ledgerItemId: ledgerItemId,
-                lotNo: '',
-                batchId: '',
-                quantity: qty,
-                uom: String(row.dataset.uom || 'KG'),
-                binId: binId,
-                ledgerBatchId: ledgerBatchId,
-                binOnly: true
-              });
-              return;
-            }
-
-            let mappedAny = false;
-            for (let i = 0; i < buckets.length && remaining > 0.0001; i++) {
-              const b = buckets[i] || {};
-              const bId = String(b.batchId || '').trim();
-              const avail = Number(b.totalQty || 0);
-              if (!bId || avail <= 0) continue;
-              const pick = Math.min(remaining, avail);
-              if (pick <= 0) continue;
-              items.push({
-                itemCode: itemCode,
-                ledgerItemId: ledgerItemId,
-                lotNo: '',
-                batchId: bId,
-                quantity: pick,
-                uom: String(row.dataset.uom || 'KG'),
-                binId: binId,
-                ledgerBatchId: ledgerBatchId
-              });
-              mappedAny = true;
-              remaining -= pick;
-            }
-
-            if (!mappedAny) {
-              items.push({
-                itemCode: itemCode,
-                ledgerItemId: ledgerItemId,
-                lotNo: '',
-                batchId: '',
-                quantity: qty,
-                uom: String(row.dataset.uom || 'KG'),
-                binId: binId,
-                ledgerBatchId: ledgerBatchId,
-                binOnly: true
-              });
-              return;
-            }
-
-            if (remaining > 0.0001) {
-              unresolved.push(itemCode + ' / ' + (srcMeta.binCode || binId) + ' (' + remaining.toFixed(3) + ' qty has no batch mapping)');
-            }
+            // Keep PO consumption server-authoritative for FIFO. The UI only
+            // selects bin + qty; the backend expands to batches in FIFO order.
+            items.push({
+              itemCode: itemCode,
+              ledgerItemId: ledgerItemId,
+              lotNo: '',
+              batchId: '',
+              quantity: qty,
+              uom: String(row.dataset.uom || 'KG'),
+              binId: binId,
+              ledgerBatchId: ledgerBatchId,
+              ledgerRowIndex: ledgerRowIndex,
+              binOnly: true
+            });
           });
         });
 
@@ -1721,6 +1962,7 @@
           var qtyInp = row.querySelector('.qty-input');
           var itemCode = row.querySelector('.item-input').value.trim();
           var binSelect = row.querySelector('.bin-select');
+          var lotInput = row.querySelector('.lot-input');
           var binId = binSelect ? binSelect.value : '';
 
           // Source split bins
@@ -1741,7 +1983,7 @@
 
           items.push({
             itemCode: itemCode,
-            lotNo: row.querySelector('.lot-input').value.trim(),
+            lotNo: lotInput ? String(lotInput.value || '').trim() : '',
             batchId: row.querySelector('.batch-input').value.trim(),
             quantity: Number(qtyInp.value),
             uom: String((row.querySelector('.uom-select') || {}).value || qtyInp.dataset.uom || 'KG'),
@@ -1931,7 +2173,7 @@
         if (bin.site === site && bin.location === location) {
           const opt = document.createElement('option');
           opt.value = bin.binId;
-          opt.textContent = bin.binCode;
+          opt.textContent = formatDispatchBinLabel(bin);
           select.appendChild(opt);
         }
       });

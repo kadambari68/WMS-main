@@ -5,7 +5,7 @@
     <base target="_top">
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Production Order Approval | WMS</title>
+    <title>Production Orders | WMS</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
@@ -49,6 +49,10 @@
             font-size: 0.85rem;
             font-weight: 600;
         }
+
+        .search-wrap {
+            max-width: 420px;
+        }
     </style>
 </head>
 
@@ -56,7 +60,7 @@
     <div class="container" style="max-width: 1000px;">
         <div class="card p-4">
             <div class="d-flex justify-content-between align-items-center mb-4">
-                <h4 class="mb-0"><i class="fa-solid fa-clipboard-list text-info me-2"></i>Production Order Approval</h4>
+                <h4 class="mb-0"><i class="fa-solid fa-clipboard-list text-info me-2"></i>Production Orders</h4>
                 <button class="btn btn-sm btn-outline-secondary" onclick="goBack()">
                     <i class="fa-solid fa-xmark"></i>
                 </button>
@@ -64,7 +68,15 @@
 
             <div id="loading" class="text-center my-5">
                 <div class="spinner-border text-primary" role="status"></div>
-                <p class="mt-2">Loading pending orders...</p>
+                <p class="mt-2">Loading production orders...</p>
+            </div>
+
+            <div id="searchBarWrap" class="search-wrap mb-3 d-none">
+                <div class="input-group">
+                    <span class="input-group-text"><i class="fa-solid fa-magnifying-glass"></i></span>
+                    <input type="text" class="form-control" id="orderSearchInput"
+                        placeholder="Search by PO no, item code, item name, or batch">
+                </div>
             </div>
 
             <div id="ordersContainer" class="d-none"></div>
@@ -74,6 +86,7 @@
     <script>
         let screenToken = 0;
         let navInProgress = false;
+        let allOrders = [];
 
         window.onload = function () {
             mountScreen();
@@ -103,45 +116,17 @@
             const loading = document.getElementById('loading');
             if (loading) loading.classList.remove('d-none');
 
-            console.log('[PO_UI] Calling getPendingProductionOrders...');
-
             google.script.run
                 .withSuccessHandler(function (orders) {
-                    console.log('[PO_UI] Success handler called');
-                    console.log('[PO_UI] Raw response:', orders);
-                    console.log('[PO_UI] Type:', typeof orders);
-                    console.log('[PO_UI] Is Array:', Array.isArray(orders));
-                    console.log('[PO_UI] Length:', orders ? orders.length : 'N/A');
-
                     if (token !== screenToken) {
-                        console.log('[PO_UI] Token mismatch, ignoring');
-                        return;
-                    }
-
-                    // Enhanced error detection
-                    if (orders === null || orders === undefined) {
-                        console.error('[PO_UI] CRITICAL: Response is null/undefined');
-                        alert('ERROR: Backend returned null. Check server logs.');
                         return;
                     }
 
                     const normalized = normalizeOrders(orders);
-                    console.log('[PO_UI] After normalization:', normalized);
-                    console.log('[PO_UI] Normalized length:', normalized.length);
-
-                    if (!Array.isArray(normalized)) {
-                        console.error('[PO_UI] CRITICAL: Normalized result is not an array', normalized);
-                        alert('ERROR: Failed to normalize response.');
-                        return;
-                    }
-
+                    allOrders = normalized;
                     displayOrders(normalized);
                 })
                 .withFailureHandler(function (err) {
-                    console.error('[PO_UI] Failure handler called');
-                    console.error('[PO_UI] Error:', err);
-                    console.error('[PO_UI] Error message:', err ? err.message : 'N/A');
-
                     if (token !== screenToken) return;
                     alert('Error loading production orders: ' + (err ? err.message : 'Unknown error'));
                 })
@@ -157,53 +142,47 @@
         function displayOrders(orders) {
             document.getElementById('loading').classList.add('d-none');
             const container = document.getElementById('ordersContainer');
+            const searchWrap = document.getElementById('searchBarWrap');
             container.classList.remove('d-none');
+            if (searchWrap) searchWrap.classList.remove('d-none');
 
-            const safeOrders = Array.isArray(orders) ? orders : [];
+            const safeOrders = (Array.isArray(orders) ? orders : []).slice().sort(function (a, b) {
+                return String(b.orderRef || '').localeCompare(String(a.orderRef || ''));
+            });
             if (safeOrders.length === 0) {
-                container.innerHTML = '<div class="alert alert-success"><strong>All Clear!</strong> No production orders to review.</div>';
+                container.innerHTML = '<div class="alert alert-success"><strong>All Clear!</strong> No active production orders found.</div>';
                 return;
             }
 
-            let html = `<p class="text-muted mb-3">Found ${safeOrders.length} production orders pending approval</p>`;
+            let html = `<p class="text-muted mb-3">Found ${safeOrders.length} active production order line(s)</p>`;
 
             safeOrders.forEach((order, idx) => {
                 const safeOrder = order || {};
                 const status = String(safeOrder.status || 'OPEN').toUpperCase();
+                const displayStatus = (status === 'OPEN' || status === 'APPROVED') ? 'READY' : status;
                 const uom = String(safeOrder.uomCode || safeOrder.uom || 'KG');
+                const itemName = String(safeOrder.itemName || '').trim();
+                const batchLabel = String(safeOrder.batchNumber || safeOrder.batchId || 'TBD').trim() || 'TBD';
                 const lastUpdated = safeOrder.lastUpdated ? toDateDisplay(safeOrder.lastUpdated) : '';
-                const orderRefArg = encodeURIComponent(String(safeOrder.orderRef || ''));
-                const itemIdArg = encodeURIComponent(String(safeOrder.itemId || ''));
-                const batchIdArg = encodeURIComponent(String(safeOrder.batchId || ''));
 
                 let badgeClass = 'bg-secondary';
-                if (status === 'APPROVED') badgeClass = 'bg-success';
+                if (displayStatus === 'READY') badgeClass = 'bg-success';
                 else if (status === 'REJECTED') badgeClass = 'bg-danger';
                 else if (status === 'OPEN') badgeClass = 'bg-warning';
-
-                const actions = status === 'OPEN' ? `
-                  <button class="btn btn-approve btn-sm me-2" onclick="updateStatus('${orderRefArg}', '${itemIdArg}', '${batchIdArg}', 'APPROVED')">
-                    <i class="fa-solid fa-check me-1"></i>Approve
-                  </button>
-                  <button class="btn btn-reject btn-sm" onclick="updateStatus('${orderRefArg}', '${itemIdArg}', '${batchIdArg}', 'REJECTED')">
-                    <i class="fa-solid fa-times me-1"></i>Reject
-                  </button>` : `<span class="badge ${badgeClass}">${status}</span>`;
 
                 html += `
           <div class="pending-item" id="order-${safeOrder.orderRef || ''}-${idx}">
             <div class="row align-items-center">
               <div class="col-md-7">
                 <strong>PO: ${safeOrder.orderRef || ''}</strong><br>
-                <small class="text-muted">Item: ${safeOrder.itemCode || ''} (ID: ${safeOrder.itemId || ''})</small><br>
-                <small class="text-muted">Batch: ${safeOrder.batchId || 'TBD'}</small><br>
+                <small class="text-muted">Item: ${safeOrder.itemCode || ''}</small><br>
+                ${itemName ? `<small class="text-muted">${itemName}</small><br>` : ''}
                 <span class="badge bg-secondary">${Number(safeOrder.quantity || 0)} ${uom}</span>
-                <span class="badge ${badgeClass} ms-2">${status}</span>
+                <span class="badge ${badgeClass} ms-2">${displayStatus}</span>
                 ${lastUpdated ? `<br><small class="text-muted mt-2">Updated: ${lastUpdated}</small>` : ''}
               </div>
               <div class="col-md-5 text-end">
-                <div class="d-flex justify-content-end gap-2">
-                  ${actions}
-                </div>
+                <small class="text-muted">Batch: ${batchLabel}</small>
               </div>
             </div>
           </div>
@@ -213,26 +192,29 @@
             container.innerHTML = html;
         }
 
-        function updateStatus(orderRefEnc, itemIdEnc, batchIdEnc, newStatus) {
-            const orderRef = decodeURIComponent(orderRefEnc || '');
-            const itemId = decodeURIComponent(itemIdEnc || '');
-            const batchId = decodeURIComponent(batchIdEnc || '');
-            const remarks = prompt(`Enter remarks for ${newStatus}:`);
-            if (remarks === null) return; // Cancelled
+        function applyOrderSearch() {
+            const input = document.getElementById('orderSearchInput');
+            const query = String((input && input.value) || '').trim().toLowerCase();
+            if (!query) {
+                displayOrders(allOrders);
+                return;
+            }
 
-            google.script.run
-                .withSuccessHandler(() => {
-                    loadOrders(screenToken);
-                    alert(`Production Order ${newStatus}`);
-                })
-                .withFailureHandler(err => alert('Error: ' + err.message))
-                .updateProductionOrderStatus({
-                    orderRef: orderRef,
-                    itemId: itemId,
-                    batchId: batchId,
-                    newStatus: newStatus,
-                    remarks: remarks
-                });
+            const filtered = (allOrders || []).filter(function (order) {
+                const safeOrder = order || {};
+                const haystack = [
+                    safeOrder.orderRef,
+                    safeOrder.itemCode,
+                    safeOrder.itemName,
+                    safeOrder.batchId,
+                    safeOrder.batchNumber
+                ].map(function (value) {
+                    return String(value || '').trim().toLowerCase();
+                }).join(' | ');
+                return haystack.indexOf(query) >= 0;
+            });
+
+            displayOrders(filtered);
         }
 
         function toDateDisplay(value) {
@@ -255,6 +237,12 @@
                 window.top.location.href = url + '?form=dashboard';
             }).getScriptUrl();
         }
+
+        document.addEventListener('DOMContentLoaded', function () {
+            const input = document.getElementById('orderSearchInput');
+            if (!input) return;
+            input.addEventListener('input', applyOrderSearch);
+        });
     </script>
 </body>
 

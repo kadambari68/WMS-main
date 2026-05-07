@@ -149,6 +149,20 @@
       gap: 12px;
     }
 
+    .summary-copy {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      min-width: 0;
+    }
+
+    .item-desc {
+      font-size: 12px;
+      font-weight: 500;
+      color: #6b7280;
+      line-height: 1.35;
+    }
+
     /* ── Highlight matched text ── */
     .item-card.match-highlight {
       border: 2px solid #667eea;
@@ -371,14 +385,16 @@
 
         const itemCode = String((r && r.itemCode) || '').trim();
         if (!itemCode) return;
+        const itemKey = itemCode.toUpperCase();
         const version = String((r && r.version) || '').trim().toUpperCase() || 'UNSPECIFIED';
         const binId = String((r && r.binId) || '').trim() || 'UNKNOWN';
         const uom = String((r && r.uom) || 'KG').trim().toUpperCase() || 'KG';
         const qa = String((r && r.qualityStatus) || 'PENDING').trim().toUpperCase() || 'PENDING';
 
-        if (!byItem[itemCode]) {
-          byItem[itemCode] = {
+        if (!byItem[itemKey]) {
+          byItem[itemKey] = {
             itemCode: itemCode,
+            itemName: String((r && (r.itemName || r.itemDescription || '')) || '').trim(),
             uomCode: uom,
             totalQty: 0,
             qaSummary: { approved: 0, pending: 0, rejected: 0, hold: 0, overridden: 0, closed: 0 },
@@ -386,9 +402,15 @@
           };
         }
 
-        const item = byItem[itemCode];
-        item.totalQty += qty;
-        if (!item.uomCode && uom) item.uomCode = uom;
+        const item = byItem[itemKey];
+        // Guard: only aggregate rows with the same UOM to prevent KG+NOS mixing
+        if (!item.uomCode) item.uomCode = uom;
+        if (item.uomCode === uom) {
+          item.totalQty += qty;
+        } else {
+          // UOM mismatch on same item_code — log and skip aggregation
+          console.warn('[DASHBOARD] UOM mismatch for ' + itemCode + ': stored=' + item.uomCode + ' row=' + uom + ' qty=' + qty);
+        }
 
         if (qa === 'APPROVED') item.qaSummary.approved += qty;
         else if (qa === 'HOLD') item.qaSummary.hold += qty;
@@ -417,8 +439,8 @@
         if (r && r.lastTransferDate) bin.lastTransferDate = String(r.lastTransferDate);
       });
 
-      return Object.keys(byItem).sort().map(function (itemCode) {
-        const item = byItem[itemCode];
+      return Object.keys(byItem).sort().map(function (itemKey) {
+        const item = byItem[itemKey];
         const versions = Object.keys(item.versions).sort().map(function (version) {
           const bins = Object.keys(item.versions[version]).sort().map(function (binId) {
             return item.versions[version][binId];
@@ -432,6 +454,7 @@
         });
         return {
           itemCode: item.itemCode,
+          itemName: item.itemName || '',
           uomCode: item.uomCode || 'KG',
           totalQty: item.totalQty || 0,
           qaSummary: item.qaSummary,
@@ -457,7 +480,8 @@
         filtered = allItems;
       } else {
         filtered = allItems.filter(function (item) {
-          return String(item.itemCode || '').toUpperCase().indexOf(q) !== -1;
+          return String(item.itemCode || '').toUpperCase().indexOf(q) !== -1 ||
+            String(item.itemName || '').toUpperCase().indexOf(q) !== -1;
         });
       }
 
@@ -510,10 +534,16 @@
         const labelHtml = q
           ? highlightText(item.itemCode, q)
           : escHtml(item.itemCode);
+        const descHtml = item.itemName
+          ? (q ? highlightText(item.itemName, q) : escHtml(item.itemName))
+          : '';
 
         card.innerHTML =
           '<summary class="summary-row">' +
+          '<span class="summary-copy">' +
           '<span>' + labelHtml + '</span>' +
+          (descHtml ? ('<span class="item-desc">' + descHtml + '</span>') : '') +
+          '</span>' +
           '<span class="pill">' + total.toFixed(2) + ' ' + escHtml(uom) + '</span>' +
           '</summary>';
 

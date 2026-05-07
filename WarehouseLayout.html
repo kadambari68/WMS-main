@@ -330,16 +330,16 @@
 
 <body>
   <div class="header">
-    <h1>🏭 Warehouse Layout</h1>
+    <h1>Warehouse Layout</h1>
     <p>Visual representation of all bins and their capacity</p>
   </div>
 
   <div class="controls">
-    <button class="btn" onclick="loadAll()">🔄 Refresh</button>
-    <button class="btn" onclick="navForm('inward')">📥 Inward</button>
-    <button class="btn" onclick="navForm('transfer')">🔄 Transfer</button>
-    <button class="btn" onclick="navForm('dispatch')">🚚 Dispatch</button>
-    <button class="btn" onclick="navForm('dashboard')">🏠 Dashboard</button>
+    <button class="btn" onclick="loadAll()">Refresh</button>
+    <button class="btn" onclick="navForm('inward')"> Inward</button>
+    <button class="btn" onclick="navForm('transfer')"> Transfer</button>
+    <button class="btn" onclick="navForm('dispatch')">Dispatch</button>
+    <button class="btn" onclick="navForm('dashboard')">Dashboard</button>
     <select class="filter-select" id="filterSite" onchange="applyFilters()">
       <option value="">All Sites</option>
     </select>
@@ -510,7 +510,14 @@
               <div class="bin-code">${bin.code}</div>
               <div class="bin-percent">${utilization.toFixed(0)}%</div>
             `;
-            binDiv.title = `${bin.code}\n${bin.currentUsage.toFixed(1)}/${bin.maxCapacity} ${usageUom}`;
+            binDiv.title = (function () {
+              var lines = Array.isArray(bin.capacityLines) && bin.capacityLines.length > 0
+                ? bin.capacityLines
+                : [{ uom: usageUom, maxCapacity: bin.maxCapacity, currentUsage: bin.currentUsage }];
+              return bin.code + '\n' + lines.map(function (l) {
+                return Number(l.currentUsage || 0).toFixed(1) + '/' + Number(l.maxCapacity || 0) + ' ' + l.uom;
+              }).join(' | ');
+            })();
             binDiv.onclick = function () { showBinDetails(bin, utilization); };
 
             binsDiv.appendChild(binDiv);
@@ -531,7 +538,10 @@
           const iuom = String(item.uomCode || bin.usageUom || bin.capacityUom || '-');
           return `
         <tr>
-          <td style="padding:6px 4px;font-size:12px;font-weight:600;">${item.itemCode}</td>
+          <td style="padding:6px 4px;font-size:12px;font-weight:600;">
+            ${item.isLatest ? '<span style="display:inline-block;padding:1px 4px;border-radius:3px;background:#10B981;color:#fff;font-size:9px;margin-right:4px;">LATEST</span>' : ''}
+            ${item.itemCode}
+          </td>
           <td style="padding:6px 4px;font-size:11px;color:#555;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${item.itemName}">${item.itemName}</td>
           <td style="padding:6px 4px;font-size:12px;text-align:right;font-weight:700;">${item.qty.toFixed(2)} ${iuom}</td>
           <td style="padding:6px 4px;text-align:center;">
@@ -572,18 +582,28 @@
       <div class="modal-label">Location:</div>
       <div class="modal-value">${bin.site} - ${bin.location}</div>
     </div>
-    <div class="modal-row">
-      <div class="modal-label">Max Capacity:</div>
-      <div class="modal-value">${bin.maxCapacity} ${capUom}</div>
-    </div>
-    <div class="modal-row">
-      <div class="modal-label">Current Usage:</div>
-      <div class="modal-value">${bin.currentUsage.toFixed(2)} ${usageUom}</div>
-    </div>
-    <div class="modal-row">
-      <div class="modal-label">Available:</div>
-      <div class="modal-value" style="color:${bin.available > 0 ? '#28a745' : '#dc3545'};">${bin.available.toFixed(2)} ${usageUom}</div>
-    </div>
+    ${(function () {
+          const lines = Array.isArray(bin.capacityLines) && bin.capacityLines.length > 0
+            ? bin.capacityLines
+            : [{
+              uom: capUom, maxCapacity: bin.maxCapacity, currentUsage: bin.currentUsage,
+              availableCapacity: bin.available, utilizationPct: bin.utilizationPct || 0
+            }];
+          return lines.map(function (line) {
+            var uom = String(line.uom || capUom);
+            var avail = Number(line.availableCapacity || 0);
+            var pct = Number(line.utilizationPct || 0).toFixed(0);
+            return '<div class="modal-row">'
+              + '<div class="modal-label">Capacity (' + uom + '):</div>'
+              + '<div class="modal-value">'
+              + Number(line.currentUsage || 0).toFixed(2) + ' / ' + Number(line.maxCapacity || 0) + ' ' + uom
+              + ' <span style="color:#888;font-size:0.8em;">(' + pct + '%)</span>'
+              + '</div></div>'
+              + '<div class="modal-row"><div class="modal-label">Available (' + uom + '):</div>'
+              + '<div class="modal-value" style="color:' + (avail > 0 ? '#28a745' : '#dc3545') + ';">'
+              + avail.toFixed(2) + ' ' + uom + '</div></div>';
+          }).join('');
+        })()}
     <div class="modal-row">
       <div class="modal-label">Utilization:</div>
       <div class="modal-value">${utilization.toFixed(1)}%</div>
